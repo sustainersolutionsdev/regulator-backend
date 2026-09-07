@@ -9,16 +9,14 @@ db = firestore.Client(project="regulator-dev")
 class RequestContext:
     """
     Carries the verified identity for this request. Every field here
-    comes from the verified token — never from a client-supplied
-    parameter — per TAD 6.1.
+    comes from the verified token - never from a client-supplied
+    parameter - per TAD 6.1.
     """
     def __init__(self, uid: str, tenant_id: str, role: str, business_unit_ids: list[str]):
         self.uid = uid
         self.tenant_id = tenant_id
         self.role = role
         self.business_unit_ids = business_unit_ids
-        # Pre-scoped reference — every downstream query starts from here,
-        # so there is no code path that can accidentally omit the tenant filter.
         self.tenant_ref = db.collection("tenants").document(tenant_id)
 
 
@@ -26,7 +24,7 @@ def get_current_context(authorization: Optional[str] = Header(None)) -> RequestC
     """
     Verifies the Firebase ID token from the Authorization header and
     builds a tenant-scoped RequestContext. Rejects the request outright
-    if the token is missing, invalid, or has no tenant_id claim —
+    if the token is missing, invalid, or has no tenant_id claim -
     there is no fallback to an "all tenants" query.
     """
     if not authorization or not authorization.startswith("Bearer "):
@@ -34,7 +32,7 @@ def get_current_context(authorization: Optional[str] = Header(None)) -> RequestC
 
     id_token = authorization.split("Bearer ")[1]
 
-        try:
+    try:
         decoded = auth.verify_id_token(id_token)
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
@@ -53,11 +51,12 @@ def get_current_context(authorization: Optional[str] = Header(None)) -> RequestC
         business_unit_ids=business_unit_ids,
     )
 
+
 def require_bu_write_access(bu_code: str, ctx: RequestContext) -> None:
     """
     Enforces FR-0.2 write scoping. Admin/SME write everywhere in their
     tenant; User is restricted to their assigned Business Unit(s).
-    Raises an explicit 403 with a clear body — never a silent no-op —
+    Raises an explicit 403 with a clear body - never a silent no-op -
     so the frontend can render FR-0.2's required on-screen error message.
     """
     if ctx.role in ("admin", "sme"):
