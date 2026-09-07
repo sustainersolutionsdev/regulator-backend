@@ -23,7 +23,7 @@ def auth_header(email, password):
 def test_tenant_a_admin_sees_only_tenant_a_users():
     headers = auth_header(*TENANT_A_ADMIN)
     resp = httpx.get(f"{BASE_URL}/users", headers=headers)
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     users = resp.json()
     assert len(users) > 0
     for u in users:
