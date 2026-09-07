@@ -19,3 +19,6 @@ availableSecrets:
   secretManager:
     - versionName: projects/regulator-dev/secrets/regulator-dev-sa-key/versions/latest
       env: 'SA_KEY'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
