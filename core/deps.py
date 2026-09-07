@@ -34,7 +34,7 @@ def get_current_context(authorization: Optional[str] = Header(None)) -> RequestC
 
     id_token = authorization.split("Bearer ")[1]
 
-        try:
+    try:
         decoded = auth.verify_id_token(id_token)
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Token verification failed: {type(e).__name__}: {e}")
@@ -52,7 +52,6 @@ def get_current_context(authorization: Optional[str] = Header(None)) -> RequestC
         role=role,
         business_unit_ids=business_unit_ids,
     )
-
 
 def require_bu_write_access(bu_code: str, ctx: RequestContext) -> None:
     """
