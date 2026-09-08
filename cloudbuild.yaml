@@ -8,10 +8,11 @@ steps:
         echo "$$SA_KEY" > /tmp/sa-key.json
         export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json
         export TEST_ACCOUNTS_PASSWORD="$$TEST_PASSWORD"
+        export FIREBASE_AUTH_KEY="$$FIREBASE_KEY"
         uvicorn main:app --host 0.0.0.0 --port 8000 &
         sleep 8
         pytest tests/ -v
-    secretEnv: ['SA_KEY', 'TEST_PASSWORD']
+    secretEnv: ['SA_KEY', 'TEST_PASSWORD', 'FIREBASE_KEY']
 
 availableSecrets:
   secretManager:
@@ -19,6 +20,8 @@ availableSecrets:
       env: 'SA_KEY'
     - versionName: projects/regulator-dev/secrets/regulator-test-password/versions/latest
       env: 'TEST_PASSWORD'
+    - versionName: projects/regulator-dev/secrets/regulator-firebase-auth-key/versions/latest
+      env: 'FIREBASE_KEY'
 
 options:
   logging: CLOUD_LOGGING_ONLY
