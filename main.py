@@ -9,11 +9,18 @@ from fastapi import FastAPI, Depends, HTTPException
 cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
 firebase_admin.initialize_app(cred)
 
-from fastapi import FastAPI, Depends
-from core.deps import get_current_context, require_bu_write_access, RequestContext
+from fastapi.middleware.cors import CORSMiddleware
+from core.deps import get_current_context, require_bu_write_access, require_admin_or_sme, RequestContext
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/me")
 def whoami(ctx: RequestContext = Depends(get_current_context)):
