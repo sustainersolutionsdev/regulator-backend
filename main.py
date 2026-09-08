@@ -3,6 +3,8 @@ load_dotenv()
 import firebase_admin
 from firebase_admin import credentials
 import os
+from core.deps import get_current_context, require_bu_write_access, require_admin_or_sme, RequestContext
+from fastapi import FastAPI, Depends, HTTPException
 
 cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
 firebase_admin.initialize_app(cred)
@@ -39,3 +41,34 @@ def list_users(ctx: RequestContext = Depends(get_current_context)):
     """
     docs = ctx.tenant_ref.collection("users").stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
+
+from core.tenancy import create_business_unit, list_business_units
+
+@app.get("/business-units")
+def get_business_units(ctx: RequestContext = Depends(get_current_context)):
+    """
+    Any authenticated role can view all Business Units in their own
+    tenant (FR-0.2: viewing is tenant-wide for every role; only
+    editing is BU-scoped).
+    """
+    return list_business_units(ctx.tenant_id)
+
+
+@app.post("/business-units")
+def post_business_unit(
+    bu_code: str,
+    label: str,
+    ctx: RequestContext = Depends(get_current_context),
+):
+    """
+    Creates a new Business Unit in the caller's tenant. Admin/SME only
+    (FR-0.2/FR-0.3) — this is a tenant-configuration action, not a
+    write to an existing BU, so it uses require_admin_or_sme rather
+    than require_bu_write_access.
+    """
+    require_admin_or_sme(ctx)
+    try:
+        create_business_unit(ctx.tenant_id, bu_code, label)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"message": f"Business Unit '{bu_code}' created.", "code": bu_code, "label": label}    

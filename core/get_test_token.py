@@ -1,8 +1,9 @@
 from dotenv import load_dotenv
 load_dotenv()
+import os
 import requests
 
-API_KEY = "REDACTED"
+API_KEY = os.environ["FIREBASE_AUTH_KEY"]
 
 def get_id_token(email: str, password: str) -> str:
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={API_KEY}"
@@ -16,5 +17,5 @@ def get_id_token(email: str, password: str) -> str:
 
 
 if __name__ == "__main__":
-    token = get_id_token("admin@testtenant.com", "TempPassword123!")
+    token = get_id_token("admin@testtenant.com", os.environ["TEST_ACCOUNTS_PASSWORD"])
     print(token)

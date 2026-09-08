@@ -7,15 +7,18 @@ steps:
         pip install -r requirements.txt --break-system-packages
         echo "$$SA_KEY" > /tmp/sa-key.json
         export GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json
+        export TEST_ACCOUNTS_PASSWORD="$$TEST_PASSWORD"
         uvicorn main:app --host 0.0.0.0 --port 8000 &
         sleep 8
-        pytest tests/test_isolation.py -v
-    secretEnv: ['SA_KEY']
+        pytest tests/ -v
+    secretEnv: ['SA_KEY', 'TEST_PASSWORD']
 
 availableSecrets:
   secretManager:
     - versionName: projects/regulator-dev/secrets/regulator-dev-sa-key/versions/latest
       env: 'SA_KEY'
+    - versionName: projects/regulator-dev/secrets/regulator-test-password/versions/latest
+      env: 'TEST_PASSWORD'
 
 options:
   logging: CLOUD_LOGGING_ONLY

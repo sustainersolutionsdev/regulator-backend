@@ -66,3 +66,17 @@ def require_bu_write_access(bu_code: str, ctx: RequestContext) -> None:
             status_code=403,
             detail=f"You are not permitted to edit Business Unit '{bu_code}'.",
         )
+
+
+def require_admin_or_sme(ctx: RequestContext) -> None:
+    """
+    Gates tenant-level configuration actions (like creating a Business
+    Unit) that aren't scoped to an existing bu_code, so
+    require_bu_write_access doesn't apply. Per OPEN-1 (closed), Admin
+    and SME are treated identically — no functional boundary.
+    """
+    if ctx.role not in ("admin", "sme"):
+        raise HTTPException(
+            status_code=403,
+            detail="Only Admin or SME can configure Business Units.",
+        )        
