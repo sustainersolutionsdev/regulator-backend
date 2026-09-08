@@ -3,7 +3,7 @@ load_dotenv()
 import os
 import requests
 
-API_KEY = os.environ["FIREBASE_AUTH_KEY"]
+API_KEY = os.environ["FIREBASE_AUTH_KEY"].strip()
 
 def get_id_token(email: str, password: str) -> str:
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={API_KEY}"
