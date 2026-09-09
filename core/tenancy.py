@@ -44,6 +44,21 @@ def create_business_unit(tenant_id: str, bu_code: str, label: str) -> None:
         "createdAt": datetime.now(timezone.utc),
     })
     print(f"Business Unit '{bu_code}' created for tenant '{tenant_id}'.")
+    
+def list_business_units(tenant_id: str) -> list[dict]:
+    """
+    Lists all Business Units under a tenant. Tenant-scoped only —
+    caller must already have a verified tenant_id from RequestContext;
+    this function takes no path a client could redirect cross-tenant.
+    """
+    tenant_ref = db.collection("tenants").document(tenant_id)
+    if not tenant_ref.get().exists:
+        raise ValueError(f"Tenant '{tenant_id}' does not exist.")
+
+    return [
+        {"id": doc.id, **doc.to_dict()}
+        for doc in tenant_ref.collection("businessUnits").stream()
+    ]    
 
 
 def list_tenants() -> list[dict]:

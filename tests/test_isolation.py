@@ -10,9 +10,11 @@ from core.get_test_token import get_id_token
 
 BASE_URL = "http://127.0.0.1:8000"
 
-TENANT_A_ADMIN = ("admin@testtenant.com", "TempPassword123!")
-TENANT_B_ADMIN = ("admin@tenantb.com", "TempPassword123!")
-TENANT_A_USER = ("user@testtenant.com", "TempPassword123!")
+TEST_PASSWORD = os.environ["TEST_ACCOUNTS_PASSWORD"].strip()
+
+TENANT_A_ADMIN = ("admin@testtenant.com", TEST_PASSWORD)
+TENANT_B_ADMIN = ("admin@tenantb.com", TEST_PASSWORD)
+TENANT_A_USER = ("user@testtenant.com", TEST_PASSWORD)
 
 
 def auth_header(email, password):
