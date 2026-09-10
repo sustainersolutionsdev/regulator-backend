@@ -34,8 +34,8 @@ def get_current_context(authorization: Optional[str] = Header(None)) -> RequestC
 
     try:
         decoded = auth.verify_id_token(id_token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"DEBUG: {type(e).__name__}: {str(e)}")
 
     tenant_id = decoded.get("tenant_id")
     role = decoded.get("role")
@@ -50,7 +50,6 @@ def get_current_context(authorization: Optional[str] = Header(None)) -> RequestC
         role=role,
         business_unit_ids=business_unit_ids,
     )
-
 
 def require_bu_write_access(bu_code: str, ctx: RequestContext) -> None:
     """
