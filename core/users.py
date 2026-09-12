@@ -5,7 +5,7 @@ from firebase_admin import credentials, auth, firestore as fb_firestore
 from google.cloud import firestore
 from datetime import datetime, timezone
 import os
-
+import secrets
 from core.audit import write_with_audit
 
 
@@ -35,8 +35,9 @@ def hide_user(tenant_id: str, target_uid: str, actor_uid: str, actor_role: str) 
     )
 
 # Initialize the Admin SDK using the same service account key
-cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-firebase_admin.initialize_app(cred)
+if not firebase_admin._apps:
+    cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+    firebase_admin.initialize_app(cred)
 
 db = firestore.Client(project="regulator-dev")
 
@@ -124,6 +125,43 @@ def update_user_role(uid: str, tenant_id: str, new_role: str, business_unit_ids:
 
     print(f"User '{uid}' updated to role={new_role}.")
 
+def _generate_temp_password() -> str:
+    """
+    Generates a Firebase-Auth-valid random password (well above the
+    6-char minimum). Never returned to any caller or logged — it only
+    exists to satisfy Auth's required password field before being
+    immediately superseded by a one-time reset link.
+    """
+    return secrets.token_urlsafe(18)
+
+
+def create_user_and_get_reset_link(
+    email: str,
+    tenant_id: str,
+    role: str,
+    business_unit_ids: list[str],
+    display_name: str = "",
+) -> tuple[str, str]:
+    """
+    FR-0.4 entry point for the Add Users form. Accepts no password from
+    the caller and exposes no password in the response — a random temp
+    password satisfies Firebase Auth internally, then a password-reset
+    link is generated and handed back for the Admin/SME to pass to the
+    new user out-of-band. create_user() itself is untouched, so direct/
+    scripted user creation (seeding, tests) still works with an explicit
+    password exactly as before.
+    """
+    temp_password = _generate_temp_password()
+    uid = create_user(
+        email=email,
+        password=temp_password,
+        tenant_id=tenant_id,
+        role=role,
+        business_unit_ids=business_unit_ids,
+        display_name=display_name,
+    )
+    reset_link = auth.generate_password_reset_link(email)
+    return uid, reset_link
 
 if __name__ == "__main__":
     uid = create_user(

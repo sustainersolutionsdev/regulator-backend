@@ -5,9 +5,13 @@ from firebase_admin import credentials
 import os
 from core.deps import get_current_context, require_bu_write_access, require_admin_or_sme, RequestContext
 from fastapi import FastAPI, Depends, HTTPException
+from pydantic import BaseModel
+from firebase_admin import auth as firebase_auth
+from core.users import create_user_and_get_reset_link
 
-cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-firebase_admin.initialize_app(cred)
+if not firebase_admin._apps:
+    cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+    firebase_admin.initialize_app(cred)
 
 from fastapi.middleware.cors import CORSMiddleware
 from core.deps import get_current_context, require_bu_write_access, require_admin_or_sme, RequestContext
@@ -38,6 +42,57 @@ def test_write(bu_code: str, ctx: RequestContext = Depends(get_current_context))
     """Proves the 403 enforcement path works for out-of-scope BU writes."""
     require_bu_write_access(bu_code, ctx)
     return {"message": f"Write to '{bu_code}' allowed for role '{ctx.role}'."}
+
+class AddUserRequest(BaseModel):
+    email: str
+    display_name: str = ""
+    role: str
+    business_unit_ids: list[str] = []
+
+
+@app.post("/users")
+def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_context)):
+    """
+    FR-0.4: Admin/SME add a new user via name, email, role, BU assignment.
+    Gated like POST /business-units — a tenant-configuration action, not
+    a write to an existing BU, so it uses require_admin_or_sme rather
+    than require_bu_write_access.
+    """
+    require_admin_or_sme(ctx)
+
+    if payload.role not in ("admin", "sme", "user"):
+        raise HTTPException(status_code=400, detail=f"Invalid role '{payload.role}'.")
+
+    # FR-0.4: User role must carry at least one specific BU; Admin/SME
+    # get auto-scoped to all BUs by create_user() regardless of input.
+    if payload.role == "user" and not payload.business_unit_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="User role requires at least one Business Unit assignment.",
+        )
+
+    try:
+        uid, reset_link = create_user_and_get_reset_link(
+            email=payload.email,
+            tenant_id=ctx.tenant_id,
+            role=payload.role,
+            business_unit_ids=payload.business_unit_ids,
+            display_name=payload.display_name,
+        )
+    except firebase_auth.EmailAlreadyExistsError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A user with email '{payload.email}' already exists.",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "message": f"User '{payload.email}' created.",
+        "uid": uid,
+        "role": payload.role,
+        "reset_link": reset_link,
+    }    
 
 @app.get("/users")
 def list_users(ctx: RequestContext = Depends(get_current_context)):
