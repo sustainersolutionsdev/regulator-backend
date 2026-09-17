@@ -155,3 +155,58 @@ def test_sme_role_is_auto_scoped_to_all_tenant_bus():
     created = next(u for u in listed.json() if u["email"] == email)
 
     assert set(created["businessUnitIds"]) == all_codes
+
+
+def test_title_and_notes_are_captured_and_listed():
+    """Confirms the fields added per Srinivas's Add Users doc (9/16) —
+    title and notes — actually persist and show up via GET /users, not
+    just that the POST accepts them without erroring."""
+    headers = auth_header(*TENANT_A_ADMIN)
+    email = unique_email("titlenotes")
+
+    resp = httpx.post(
+        f"{BASE_URL}/users",
+        json={
+            "email": email,
+            "display_name": "Title Notes Test",
+            "title": "Compliance Analyst",
+            "role": "user",
+            "business_unit_ids": ["BU1"],
+            "notes": "Added for Add Users field-correction verification.",
+        },
+        headers=headers,
+        timeout=TIMEOUT,
+    )
+    assert resp.status_code == 200, resp.text
+
+    listed = httpx.get(f"{BASE_URL}/users", headers=headers, timeout=TIMEOUT)
+    created = next(u for u in listed.json() if u["email"] == email)
+
+    assert created["title"] == "Compliance Analyst"
+    assert created["notes"] == "Added for Add Users field-correction verification."
+
+
+def test_title_and_notes_default_to_empty_when_omitted():
+    """Both are optional per the doc — confirm omitting them doesn't 422
+    and doesn't leave the field missing entirely on the stored record."""
+    headers = auth_header(*TENANT_A_ADMIN)
+    email = unique_email("notitlenotes")
+
+    resp = httpx.post(
+        f"{BASE_URL}/users",
+        json={
+            "email": email,
+            "display_name": "No Title Notes Test",
+            "role": "user",
+            "business_unit_ids": ["BU1"],
+        },
+        headers=headers,
+        timeout=TIMEOUT,
+    )
+    assert resp.status_code == 200, resp.text
+
+    listed = httpx.get(f"{BASE_URL}/users", headers=headers, timeout=TIMEOUT)
+    created = next(u for u in listed.json() if u["email"] == email)
+
+    assert created["title"] == ""
+    assert created["notes"] == ""
