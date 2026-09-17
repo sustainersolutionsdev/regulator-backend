@@ -51,12 +51,18 @@ def create_user(
     role: str,
     business_unit_ids: list[str],
     display_name: str = "",
+    title: str = "",
+    notes: str = "",
 ) -> str:
     """
     The ONLY sanctioned path for creating a user.
     Creates the Firebase Auth account, sets custom claims
     (tenant_id, role, businessUnitIds), and mirrors the record
     into Firestore under tenants/{tenantId}/users/{userId}.
+
+    title/notes (per Srinivas's Add Users doc, confirmed 9/16) are
+    directory metadata only — not security-relevant like role/BU, so
+    they go in the Firestore mirror doc only, never in custom claims.
     """
     if role not in VALID_ROLES:
         raise ValueError(f"Invalid role '{role}'. Must be one of {VALID_ROLES}.")
@@ -91,6 +97,8 @@ def create_user(
         "displayName": display_name or email,
         "role": role,
         "businessUnitIds": business_unit_ids,
+        "title": title,
+        "notes": notes,
         "createdAt": datetime.now(timezone.utc),
     })
 
@@ -141,6 +149,8 @@ def create_user_and_get_reset_link(
     role: str,
     business_unit_ids: list[str],
     display_name: str = "",
+    title: str = "",
+    notes: str = "",
 ) -> tuple[str, str]:
     """
     FR-0.4 entry point for the Add Users form. Accepts no password from
@@ -159,6 +169,8 @@ def create_user_and_get_reset_link(
         role=role,
         business_unit_ids=business_unit_ids,
         display_name=display_name,
+        title=title,
+        notes=notes,
     )
     reset_link = auth.generate_password_reset_link(email)
     return uid, reset_link
