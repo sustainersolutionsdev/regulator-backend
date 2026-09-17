@@ -49,21 +49,22 @@ def test_write(bu_code: str, ctx: RequestContext = Depends(get_current_context))
 class AddUserRequest(BaseModel):
     email: str
     display_name: str = ""
-    title: Optional[str] = ""
     role: str
     business_unit_ids: list[str] = []
-    notes: Optional[str] = ""
 
 
 @app.post("/users")
 def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_context)):
     """
-    FR-0.4: Admin/SME add a new user via name, email, title, role, BU
-    assignment, notes (title/notes confirmed against Srinivas's Add Users
-    doc, 9/16 — role and multi-BU confirmed unchanged in the same reply).
+    FR-0.4: Admin/SME add a new user via name, email, role, BU assignment.
     Gated like POST /business-units — a tenant-configuration action, not
     a write to an existing BU, so it uses require_admin_or_sme rather
     than require_bu_write_access.
+
+    NOTE: title/notes fields are handled on the feature/add-users-title-notes
+    branch, not here — this branch's core/users.py doesn't support them.
+    Reverted to pre-title/notes state to fix a branch-mismatch bug where
+    this file had drifted ahead of that branch's core/users.py.
     """
     require_admin_or_sme(ctx)
 
@@ -85,8 +86,6 @@ def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_
             role=payload.role,
             business_unit_ids=payload.business_unit_ids,
             display_name=payload.display_name,
-            title=payload.title,
-            notes=payload.notes,
         )
     except firebase_auth.EmailAlreadyExistsError:
         raise HTTPException(
