@@ -6,6 +6,7 @@ import os
 from core.deps import get_current_context, require_bu_write_access, require_admin_or_sme, RequestContext
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from firebase_admin import auth as firebase_auth
 from core.users import create_user_and_get_reset_link
 
@@ -46,14 +47,18 @@ def test_write(bu_code: str, ctx: RequestContext = Depends(get_current_context))
 class AddUserRequest(BaseModel):
     email: str
     display_name: str = ""
+    title: Optional[str] = ""
     role: str
     business_unit_ids: list[str] = []
+    notes: Optional[str] = ""
 
 
 @app.post("/users")
 def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_context)):
     """
-    FR-0.4: Admin/SME add a new user via name, email, role, BU assignment.
+    FR-0.4: Admin/SME add a new user via name, email, title, role, BU
+    assignment, notes (title/notes confirmed against Srinivas's Add Users
+    doc, 9/16 — role and multi-BU confirmed unchanged in the same reply).
     Gated like POST /business-units — a tenant-configuration action, not
     a write to an existing BU, so it uses require_admin_or_sme rather
     than require_bu_write_access.
@@ -78,6 +83,8 @@ def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_
             role=payload.role,
             business_unit_ids=payload.business_unit_ids,
             display_name=payload.display_name,
+            title=payload.title,
+            notes=payload.notes,
         )
     except firebase_auth.EmailAlreadyExistsError:
         raise HTTPException(
