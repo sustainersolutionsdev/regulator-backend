@@ -1,9 +1,11 @@
+import logging
 from fastapi import Header, HTTPException, Depends
 from firebase_admin import auth
 from google.cloud import firestore
 from typing import Optional
 
 db = firestore.Client(project="regulator-dev")
+logger = logging.getLogger(__name__)
 
 
 class RequestContext:
@@ -33,9 +35,15 @@ def get_current_context(authorization: Optional[str] = Header(None)) -> RequestC
     id_token = authorization.split("Bearer ")[1]
 
     try:
-        decoded = auth.verify_id_token(id_token)
+        # clock_skew_seconds: Windows dev machines and fresh Cloud Build
+        # containers drift by a second or two ("Token used too early").
+        decoded = auth.verify_id_token(id_token, clock_skew_seconds=10)
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"DEBUG: {type(e).__name__}: {str(e)}")
+        # Exception detail goes to the server log only, never to the
+        # caller: the repo is public and the 401 body must not reveal
+        # why verification failed (T009, NFR-2).
+        logger.warning("Token verification failed: %s", type(e).__name__)
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
     tenant_id = decoded.get("tenant_id")
     role = decoded.get("role")
@@ -69,13 +77,13 @@ def require_bu_write_access(bu_code: str, ctx: RequestContext) -> None:
 
 def require_admin_or_sme(ctx: RequestContext) -> None:
     """
-    Gates tenant-level configuration actions (like creating a Business
-    Unit) that aren't scoped to an existing bu_code, so
-    require_bu_write_access doesn't apply. Per OPEN-1 (closed), Admin
-    and SME are treated identically — no functional boundary.
+    Gates tenant-level actions (creating Business Units, users,
+    regulations, document uploads) that aren't scoped to an existing
+    bu_code, so require_bu_write_access doesn't apply. Per OPEN-1
+    (closed), Admin and SME are treated identically.
     """
     if ctx.role not in ("admin", "sme"):
         raise HTTPException(
             status_code=403,
-            detail="Only Admin or SME can configure Business Units.",
-        )        
+            detail="Only Admin or SME can perform this action.",
+        )

@@ -10,7 +10,7 @@ from typing import Optional
 from firebase_admin import auth as firebase_auth
 from core.users import create_user_and_get_reset_link
 from core.tenancy import create_regulation, validate_regulation_payload
-from core.storage import upload_document
+from core.storage import upload_document, BUCKET_NAME
 
 if not firebase_admin._apps:
     cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
@@ -235,6 +235,24 @@ def add_regulation(
     require_admin_or_sme(ctx)
 
     payload_dict = payload.model_dump()
+    
+        # T009 hardening (NFR-1, NFR-2): document metadata comes from the
+    # client, so it is never trusted as-is.
+    #  - gcs_uri must sit inside THIS tenant's folder, otherwise a caller
+    #    could attach another tenant's file to their own record.
+    #  - uploaded_by is always the verified caller, never client-supplied.
+    #  - documents: null is normalised to [] (previously a 500).
+    tenant_prefix = f"gs://{BUCKET_NAME}/tenants/{ctx.tenant_id}/"
+    payload_dict["documents"] = payload_dict.get("documents") or []
+    for doc in payload_dict["documents"]:
+        uri = doc["gcs_uri"]
+        rest = uri[len(tenant_prefix):] if uri.startswith(tenant_prefix) else None
+        if not rest or ".." in rest.split("/"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Document '{doc['file_name']}' does not belong to this tenant.",
+            )
+        doc["uploaded_by"] = ctx.uid
 
     errors = validate_regulation_payload(payload_dict)
     if errors:
