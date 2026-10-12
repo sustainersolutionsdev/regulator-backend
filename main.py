@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional
 from firebase_admin import auth as firebase_auth
 from core.users import create_user_and_get_reset_link
-from core.tenancy import create_regulation, validate_regulation_payload
+from core.tenancy import create_regulation, validate_regulation_payload, list_regulations
 from core.storage import upload_document, BUCKET_NAME
 
 if not firebase_admin._apps:
@@ -31,7 +31,7 @@ app.add_middleware(
 
 @app.get("/me")
 def whoami(ctx: RequestContext = Depends(get_current_context)):
-    """Sanity endpoint — proves the middleware correctly decodes the token."""
+    """Sanity endpoint â€” proves the middleware correctly decodes the token."""
     return {
         "uid": ctx.uid,
         "tenant_id": ctx.tenant_id,
@@ -60,8 +60,8 @@ def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_
     """
     FR-0.4: Admin/SME add a new user via name, email, title, role, BU
     assignment, notes (title/notes confirmed against Srinivas's Add Users
-    doc, 9/16 — role and multi-BU confirmed unchanged in the same reply).
-    Gated like POST /business-units — a tenant-configuration action, not
+    doc, 9/16 â€” role and multi-BU confirmed unchanged in the same reply).
+    Gated like POST /business-units â€” a tenant-configuration action, not
     a write to an existing BU, so it uses require_admin_or_sme rather
     than require_bu_write_access.
     """
@@ -107,7 +107,7 @@ def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_
 def list_users(ctx: RequestContext = Depends(get_current_context)):
     """
     Lists users in the CALLER's tenant only. ctx.tenant_ref is
-    pre-scoped from the verified token — there is no parameter
+    pre-scoped from the verified token â€” there is no parameter
     here a caller could manipulate to reach another tenant.
     """
     docs = ctx.tenant_ref.collection("users").stream()
@@ -133,7 +133,7 @@ def post_business_unit(
 ):
     """
     Creates a new Business Unit in the caller's tenant. Admin/SME only
-    (FR-0.2/FR-0.3) — this is a tenant-configuration action, not a
+    (FR-0.2/FR-0.3) â€” this is a tenant-configuration action, not a
     write to an existing BU, so it uses require_admin_or_sme rather
     than require_bu_write_access.
     """
@@ -146,7 +146,7 @@ def post_business_unit(
 
 
 class DocumentMetadata(BaseModel):
-    """Shape returned by POST /regulations/upload-document — passed back
+    """Shape returned by POST /regulations/upload-document â€” passed back
     in as-is when creating the regulation record."""
     file_name: str
     gcs_uri: str
@@ -159,7 +159,7 @@ class DocumentMetadata(BaseModel):
 class AddRegulationRequest(BaseModel):
     """
     Corrected against Srinivas's actual "Input form to Add Regulation"
-    doc — NOT the frozen Requirements Document's FR-0.7, which drifted
+    doc â€” NOT the frozen Requirements Document's FR-0.7, which drifted
     from this source and has been superseded for this field list.
     Dropped entirely (no FR-0.7 trace kept): cfr_citation, agency,
     regulatory_focus, compliance_dates, status, lifecycle_stage,
@@ -168,7 +168,7 @@ class AddRegulationRequest(BaseModel):
     title: str
     abbreviated_title: Optional[str] = ""
     due_date: str
-    domain: str  # singular per the iWant doc's "Domain:" — not multi-select
+    domain: str  # singular per the iWant doc's "Domain:" â€” not multi-select
     country: Optional[str] = ""
     region: Optional[str] = ""
     business_unit_ids: list[str]
@@ -184,12 +184,12 @@ async def upload_regulation_document(
 ):
     """
     Step 1 of the two-step add-regulation-with-document flow (same shape
-    as any "upload then reference" pattern, reimplemented here on GCS —
+    as any "upload then reference" pattern, reimplemented here on GCS â€”
     not a reuse of the torn-down Azure architecture). Returns metadata
     only; the frontend passes it back in AddRegulationRequest.documents
     on the actual POST /regulations call.
 
-    Gated with require_admin_or_sme — matches every other Add Regulation
+    Gated with require_admin_or_sme â€” matches every other Add Regulation
     action on this screen.
     """
     require_admin_or_sme(ctx)
@@ -222,7 +222,7 @@ def add_regulation(
     ctx: RequestContext = Depends(get_current_context),
 ):
     """
-    Corrected regulation-creation endpoint — see AddRegulationRequest's
+    Corrected regulation-creation endpoint â€” see AddRegulationRequest's
     docstring for what changed and why. id/createdAt/lastUpdated remain
     always server-generated (FR-0.8, unaffected by this correction).
 
@@ -265,3 +265,18 @@ def add_regulation(
         actor_role=ctx.role,
     )
     return record
+
+
+@app.get("/regulations")
+def get_regulations(ctx: RequestContext = Depends(get_current_context)):
+    """
+    T011 (FR-1.1, FR-1.4): lists regulations in the CALLER's tenant only,
+    for the Roadmap (and later the Dashboard, T017). Viewing is tenant-wide
+    for every role, so there is no role gate here; only editing is
+    BU-scoped (FR-0.2). ctx.tenant_id comes from the verified token, so
+    there is no parameter a caller could change to reach another tenant.
+    """
+    try:
+        return list_regulations(ctx.tenant_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
