@@ -177,7 +177,31 @@ def create_regulation(
     print(f"Regulation '{record['title']}' created (id={reg_ref.id}, tenant={tenant_id}).")
     return {"id": reg_ref.id, **record}
 
+def list_regulations(tenant_id: str) -> list[dict]:
+    """
+    T011 (FR-1.1, FR-1.4): every non-hidden regulation in ONE tenant,
+    sorted by due date. Tenant-scoped exactly like list_business_units():
+    the caller passes the verified tenant_id from RequestContext, and no
+    parameter here lets a client reach another tenant.
 
+    Soft-deleted records (hidden=True, NFR-8) are excluded. The "Add to
+    Roadmap and Dashboard" toggle is applied by each screen, so the
+    Dashboard (T017) can reuse this call unchanged.
+    """
+    tenant_ref = db.collection("tenants").document(tenant_id)
+    if not tenant_ref.get().exists:
+        raise ValueError(f"Tenant '{tenant_id}' does not exist.")
+
+    regulations = [
+        {"id": doc.id, **doc.to_dict()}
+        for doc in tenant_ref.collection("regulations").stream()
+    ]
+    regulations = [r for r in regulations if not r.get("hidden", False)]
+    regulations.sort(
+        key=lambda r: (str(r.get("dueDate") or "9999-12-31"), str(r.get("title", "")).lower())
+    )
+    return regulations
+    
 if __name__ == "__main__":
     provision_tenant("test-tenant-001", "Test Tenant Inc.")
     create_business_unit("test-tenant-001", "BU2", "Printers")
