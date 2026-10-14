@@ -285,3 +285,8 @@ def get_regulations(ctx: RequestContext = Depends(get_current_context)):
 # T014: edit / remove regulation endpoints (core/regulation_routes.py)
 from core.regulation_routes import router as regulation_edit_router
 app.include_router(regulation_edit_router)
+
+
+# T015 (NFR-4): gzip responses over 1 KB; GET /regulations is ~770 KB at 2,000 records
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)

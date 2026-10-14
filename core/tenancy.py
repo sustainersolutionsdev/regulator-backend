@@ -32,8 +32,7 @@ def create_business_unit(tenant_id: str, bu_code: str, label: str) -> None:
     BU codes are tenant-scoped only — never cross tenants (FR-0.2).
     """
     tenant_ref = db.collection("tenants").document(tenant_id)
-    if not tenant_ref.get().exists:
-        raise ValueError(f"Tenant '{tenant_id}' does not exist.")
+
 
     bu_ref = tenant_ref.collection("businessUnits").document(bu_code)
     if bu_ref.get().exists:
