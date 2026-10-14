@@ -280,3 +280,8 @@ def get_regulations(ctx: RequestContext = Depends(get_current_context)):
         return list_regulations(ctx.tenant_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# T014: edit / remove regulation endpoints (core/regulation_routes.py)
+from core.regulation_routes import router as regulation_edit_router
+app.include_router(regulation_edit_router)
