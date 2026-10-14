@@ -62,6 +62,7 @@ REGULATION_TITLE_PREFIXES = (
     "Required-Only Test ",       # test_regulations.py
     "T009 QC Regulation ",       # test_m0_qc_hardening.py
     "T011 Roadmap Regulation ",  # test_roadmap_regulations.py
+    "T014 Edit Regulation ",     # test_regulation_edits.py
 )
 BU_CODE_PREFIXES = ("BU-T006-TEST-",)                     # test_business_units.py
 BU_CODES_EXACT = {"BU-DUP-TEST", "BU-USER-ATTEMPT"}       # test_business_units.py
