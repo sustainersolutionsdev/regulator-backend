@@ -8,6 +8,10 @@ Covers what the per-task suites (T005-T008) never exercised:
   - User role can see its own tenant's directory, never another tenant's
     (Srinivas, Oct 8 2026: all roles see the directory, tenant-scoped)
   - client-supplied document metadata on POST /regulations
+
+T020: test_sme_bypasses_bu_write_restriction now uses the real Business
+Unit-scoped write (PATCH /regulations/{id}/bu-status/{bu_code}) instead of
+the removed /test-write endpoint.
 """
 import sys
 import os
@@ -116,7 +120,19 @@ def test_sme_can_create_regulation():
 
 def test_sme_bypasses_bu_write_restriction():
     headers = auth_header(*TENANT_A_SME)
-    resp = httpx.post(f"{BASE_URL}/test-write/BU2", headers=headers, timeout=TIMEOUT)
+    created = httpx.post(
+        f"{BASE_URL}/regulations",
+        json=regulation_payload(business_unit_ids=["BU1", "BU2"]),
+        headers=headers,
+        timeout=TIMEOUT,
+    )
+    assert created.status_code == 200, created.text
+    resp = httpx.patch(
+        f"{BASE_URL}/regulations/{created.json()['id']}/bu-status/BU2",
+        json={"status": "compliant"},
+        headers=headers,
+        timeout=TIMEOUT,
+    )
     assert resp.status_code == 200, resp.text
 
 

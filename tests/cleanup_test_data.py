@@ -63,6 +63,9 @@ REGULATION_TITLE_PREFIXES = (
     "T009 QC Regulation ",       # test_m0_qc_hardening.py
     "T011 Roadmap Regulation ",  # test_roadmap_regulations.py
     "T014 Edit Regulation ",     # test_regulation_edits.py
+    "T018 Status Regulation ",  # test_regulation_status.py
+    "T020 Isolation Regulation ",  # test_isolation.py
+    "T020 Document Regulation ",  # test_regulation_documents.py
     "T015 Perf Regulation ",     # perf_seed_roadmap.py (NFR-4 load data)
 )
 BU_CODE_PREFIXES = ("BU-T006-TEST-",)                     # test_business_units.py

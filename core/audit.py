@@ -1,3 +1,5 @@
+from typing import Optional
+
 from google.cloud import firestore
 from datetime import datetime, timezone
 
@@ -23,11 +25,16 @@ def write_with_audit(
     actor_uid: str,
     actor_role: str,
     action: str,
+    audit_after: Optional[dict] = None,
 ) -> None:
     """
     The ONLY sanctioned way to write a regulation/status/note/document
     change. Every call produces exactly one D6 Audit Log entry,
     atomically with the write it describes.
+
+    audit_after (T020): what the audit entry records as "after", when
+    `data` holds a Firestore sentinel such as ArrayUnion that cannot itself
+    be stored in the audit document. Defaults to `data`.
     """
     before_snapshot = doc_ref.get()
     before = before_snapshot.to_dict() if before_snapshot.exists else None
@@ -41,7 +48,7 @@ def write_with_audit(
         "action": action,
         "targetPath": doc_ref.path,
         "before": before,
-        "after": data,
+        "after": data if audit_after is None else audit_after,
         "timestamp": datetime.now(timezone.utc),
     }
 
