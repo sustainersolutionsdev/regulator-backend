@@ -40,12 +40,6 @@ def whoami(ctx: RequestContext = Depends(get_current_context)):
     }
 
 
-@app.post("/test-write/{bu_code}")
-def test_write(bu_code: str, ctx: RequestContext = Depends(get_current_context)):
-    """Proves the 403 enforcement path works for out-of-scope BU writes."""
-    require_bu_write_access(bu_code, ctx)
-    return {"message": f"Write to '{bu_code}' allowed for role '{ctx.role}'."}
-
 class AddUserRequest(BaseModel):
     email: str
     display_name: str = ""
@@ -277,7 +271,7 @@ def get_regulations(ctx: RequestContext = Depends(get_current_context)):
     there is no parameter a caller could change to reach another tenant.
     """
     try:
-        return list_regulations(ctx.tenant_id)
+        return [with_document_flags(r) for r in list_regulations(ctx.tenant_id)]
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -285,6 +279,12 @@ def get_regulations(ctx: RequestContext = Depends(get_current_context)):
 # T014: edit / remove regulation endpoints (core/regulation_routes.py)
 from core.regulation_routes import router as regulation_edit_router
 app.include_router(regulation_edit_router)
+
+# T020: saved Dashboard view routes (core/preference_routes.py); GET /regulations
+# document flags (core/regulation_routes.py).
+from core.regulation_routes import with_document_flags
+from core.preference_routes import router as preference_router
+app.include_router(preference_router)
 
 
 # T015 (NFR-4): gzip responses over 1 KB; GET /regulations is ~770 KB at 2,000 records
