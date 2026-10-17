@@ -4,6 +4,8 @@ Regulation edit routes.
 T014 - Edit and remove a regulation (FR-1.4, NFR-2, NFR-8).
 T020 - Per-Business-Unit compliance status, Dashboard documents
        (FR-2.1, FR-2.3, FR-2.5 as changed by DL-8).
+T022 - Downloads are served with the type that matches the file's
+       extension, plus X-Content-Type-Options: nosniff (M2 QC).
 
 Decided by Srinivas, Oct 13 2026 (DL-6):
   1. Main details (title, abbreviated title, due date, domain, country,
@@ -60,7 +62,7 @@ from pydantic import BaseModel
 
 from core.audit import write_with_audit
 from core.deps import RequestContext, get_current_context, require_admin_or_sme, require_bu_write_access
-from core.storage import BUCKET_NAME, _storage_client, upload_document
+from core.storage import BUCKET_NAME, _storage_client, content_type_for, upload_document
 
 router = APIRouter()
 
@@ -398,8 +400,11 @@ def download_regulation_document(
     filename = target.get("fileName") or "document"
     ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
     disposition = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+    # T022: the type comes from the file's extension, never from the stored
+    # contentType (on records made through Add Regulation that was whatever
+    # the browser sent), and the browser is told not to guess.
     return Response(
         content=content,
-        media_type=target.get("contentType") or "application/octet-stream",
-        headers={"Content-Disposition": disposition},
+        media_type=content_type_for(filename),
+        headers={"Content-Disposition": disposition, "X-Content-Type-Options": "nosniff"},
     )
