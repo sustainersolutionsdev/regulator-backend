@@ -66,6 +66,7 @@ REGULATION_TITLE_PREFIXES = (
     "T018 Status Regulation ",  # test_regulation_status.py
     "T020 Isolation Regulation ",  # test_isolation.py
     "T020 Document Regulation ",  # test_regulation_documents.py
+    "T022 QC Regulation ",       # test_m2_qc_hardening.py
     "T015 Perf Regulation ",     # perf_seed_roadmap.py (NFR-4 load data)
 )
 BU_CODE_PREFIXES = ("BU-T006-TEST-",)                     # test_business_units.py
@@ -124,14 +125,39 @@ def _delete_refs(refs) -> None:
         batch.commit()
 
 
+def _orphan_test_logins(tenant_ids: list[str]) -> list:
+    """
+    T022: test logins with no directory record in any test tenant - left
+    by a sign-up that failed half-way (e.g. a dropped connection to
+    Firebase). Same email pattern and protected accounts as _is_test_user;
+    a login whose claims name a tenant outside the test tenants is never
+    touched.
+    """
+    orphans = []
+    for user in auth.list_users().iterate_all():
+        email = (user.email or "").lower()
+        if email in PROTECTED_EMAILS or not TEST_USER_EMAIL.match(email):
+            continue
+        claimed = (user.custom_claims or {}).get("tenant_id")
+        if claimed and claimed not in tenant_ids:
+            continue
+        if any(
+            db.collection("tenants").document(t).collection("users").document(user.uid).get().exists
+            for t in tenant_ids
+        ):
+            continue
+        orphans.append(user)
+    return orphans
+
 def run_cleanup(apply: bool = False, verbose: bool = True) -> dict:
     if db.project != ALLOWED_PROJECT:
         raise RuntimeError(f"Refusing to run against project '{db.project}' (only '{ALLOWED_PROJECT}').")
 
     bucket = storage.Client(project=ALLOWED_PROJECT).bucket(BUCKET_NAME)
-    totals = {"regulations": 0, "business_units": 0, "users": 0, "files": 0}
+    totals = {"regulations": 0, "business_units": 0, "users": 0, "files": 0, "orphan_logins": 0}
 
-    for tenant_id in _test_tenant_ids():
+    tenant_ids = _test_tenant_ids()
+    for tenant_id in tenant_ids:
         tenant_ref = db.collection("tenants").document(tenant_id)
         tenant_prefix = f"gs://{BUCKET_NAME}/tenants/{tenant_id}/"
 
@@ -194,6 +220,23 @@ def run_cleanup(apply: bool = False, verbose: bool = True) -> dict:
         totals["users"] += len(user_docs)
         totals["files"] += len(blob_names)
 
+    # T022: logins left with no directory record (see _orphan_test_logins).
+    orphans = _orphan_test_logins(tenant_ids)
+    if verbose:
+        print(
+            f"[cleanup] orphan test logins: {len(orphans)}"
+            + ("" if apply else "  (dry run - nothing deleted)")
+        )
+        if not apply:
+            for user in orphans:
+                print(f"           login {user.email}")
+    if apply:
+        for user in orphans:
+            try:
+                auth.delete_user(user.uid)
+            except auth.UserNotFoundError:
+                pass
+    totals["orphan_logins"] += len(orphans)
     return totals
 
 
