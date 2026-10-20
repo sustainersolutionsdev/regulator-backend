@@ -49,6 +49,7 @@ import hashlib
 import html
 import logging
 import os
+import re
 import time
 from datetime import date, datetime, timezone
 from typing import Callable, Optional
@@ -367,11 +368,21 @@ This is an automated message &mdash; replies are not monitored.
 
 # --- Sending -------------------------------------------------------------------
 
+_ADDRESS_RE = re.compile(r"[^\s@<>\"',;:()\[\]]+@[^\s@<>\"',;:()\[\]]+")
+
+
+def _redact(text: str) -> str:
+    """T027: Brevo's error text can quote the recipient's address ("... is not
+    valid"); the Alerts Log keeps user IDs only, never addresses."""
+    return _ADDRESS_RE.sub("[address]", text or "")
+
+
 def _brevo_error(resp) -> str:
     try:
         message = (resp.json() or {}).get("message") or ""
     except ValueError:
         message = ""
+    message = _redact(message)
     return f"HTTP {resp.status_code}{': ' + message[:200] if message else ''}"
 
 

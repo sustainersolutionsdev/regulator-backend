@@ -524,3 +524,12 @@ def test_resubscribe_does_nothing_outside_send_mode(monkeypatch):
     monkeypatch.setenv("ALERTS_MODE", "log")
     delete = FakeDelete(FakeResp(204))
     assert resubscribe_at_provider("sam@acme.example", delete=delete) == "skipped" and delete.calls == []
+
+
+# --- T027 QC -------------------------------------------------------------------------
+
+def test_brevo_error_text_never_carries_an_address():
+    post = FakePost([FakeResp(400, {"message": "email 'sam.lee+x@acme.example' is not valid"})])
+    out = deliver(cfg(), PEOPLE[:1], MSG, post=post)
+    assert out["failed"][0]["error"] == "HTTP 400: email '[address]' is not valid"
+    assert "acme.example" not in str(out)
