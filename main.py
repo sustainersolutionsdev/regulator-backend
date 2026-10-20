@@ -4,7 +4,7 @@ import firebase_admin
 from firebase_admin import credentials
 import os
 from core.deps import get_current_context, require_bu_write_access, require_admin_or_sme, RequestContext
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 from firebase_admin import auth as firebase_auth
@@ -213,6 +213,7 @@ async def upload_regulation_document(
 @app.post("/regulations")
 def add_regulation(
     payload: AddRegulationRequest,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(get_current_context),
 ):
     """
@@ -258,6 +259,10 @@ def add_regulation(
         actor_uid=ctx.uid,
         actor_role=ctx.role,
     )
+    # T025 (FR-3.1, DL-9): email alert, sent after the response;
+    # skipped when the regulation is not on the Roadmap/Dashboard.
+    from core.alerts import schedule_regulation_added_alert
+    schedule_regulation_added_alert(background_tasks, ctx.tenant_id, record["id"], ctx.uid)
     return record
 
 

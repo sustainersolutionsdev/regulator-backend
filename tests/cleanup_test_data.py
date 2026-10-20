@@ -68,6 +68,7 @@ REGULATION_TITLE_PREFIXES = (
     "T020 Document Regulation ",  # test_regulation_documents.py
     "T022 QC Regulation ",       # test_m2_qc_hardening.py
     "T015 Perf Regulation ",     # perf_seed_roadmap.py (NFR-4 load data)
+    "T025 Alert Regulation ",    # test_alerts.py
 )
 BU_CODE_PREFIXES = ("BU-T006-TEST-",)                     # test_business_units.py
 BU_CODES_EXACT = {"BU-DUP-TEST", "BU-USER-ATTEMPT"}       # test_business_units.py
@@ -189,6 +190,13 @@ def run_cleanup(apply: bool = False, verbose: bool = True) -> dict:
             if _is_test_user(doc.to_dict())
         ]
 
+        # T025: Alerts Log entries written for test regulations.
+        alert_refs = [
+            doc.reference
+            for doc in tenant_ref.collection("alertsLog").stream()
+            if str((doc.to_dict() or {}).get("regulationTitle", "")).startswith(REGULATION_TITLE_PREFIXES)
+        ]
+
         if verbose:
             print(
                 f"[cleanup] {tenant_id}: {len(reg_refs)} regulations, {len(bu_refs)} Business Units, "
@@ -204,6 +212,7 @@ def run_cleanup(apply: bool = False, verbose: bool = True) -> dict:
         if apply:
             _delete_refs(reg_refs)
             _delete_refs(bu_refs)
+            _delete_refs(alert_refs)
             for doc in user_docs:
                 try:
                     auth.delete_user(doc.id)  # mirror doc id == Firebase Auth uid
@@ -217,6 +226,7 @@ def run_cleanup(apply: bool = False, verbose: bool = True) -> dict:
 
         totals["regulations"] += len(reg_refs)
         totals["business_units"] += len(bu_refs)
+        totals["alert_logs"] = totals.get("alert_logs", 0) + len(alert_refs)
         totals["users"] += len(user_docs)
         totals["files"] += len(blob_names)
 
