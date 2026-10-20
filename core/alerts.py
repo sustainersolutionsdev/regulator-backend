@@ -5,7 +5,15 @@ FR-3.1  Email every user of the tenant when a regulation is added.
 FR-3.3  Email is the only alert channel.
 FR-3.0  Content follows alert email template v1.1, signed off by Srinivas
         on Oct 19 2026 (T024).
+FR-3.2  (T026) Email every user of the tenant when an existing regulation is
+        updated.
 DL-9    (Addendum A v1.7, Srinivas Oct 19 2026):
+        - an "updated" email only when Admin/SME change the MAIN DETAILS
+          (title, abbreviated title, due date, domain, country, region,
+          Business Units, notes) - never for status, explanations or
+          documents; switching "Add to Roadmap and Dashboard" from No to
+          Yes sends the "New regulation" email, since that is when people
+          can first see it;
         - each user can turn alerts off for themselves (on by default);
         - no email for regulations saved with "Add to Roadmap and
           Dashboard" = No, or for removals;
@@ -243,6 +251,10 @@ def render_alert(
         subject = f"[Regulator] New regulation: {name} (due {due})"
     else:
         subject = f"[Regulator] Updated: {name}"
+        if changes and len(changes) == 1:
+            subject += f" — {str(changes[0][0]).lower()} changed"
+        elif changes:
+            subject += f" — {len(changes)} details changed"
     subject = _one_line(subject)[:200]
 
     units = list(reg.get("businessUnitIds") or [])
@@ -445,12 +457,79 @@ def _tenant_context(tenant_ref, actor_uid: str):
     return tenant_name or tenant_ref.id, bu_labels, users, prefs, actor
 
 
-def send_regulation_added_alert(tenant_id: str, reg_id: str, actor_uid: str, db=None, post=None) -> Optional[dict]:
+# --- What counts as an update (T026, DL-9) ---------------------------------------
+
+# Stored field -> label. The main details from Srinivas's Add Regulation form;
+# changing any of these (Admin/SME, PATCH /regulations/{id}) emails everyone.
+MAIN_DETAIL_FIELDS = (
+    ("title", "Title"),
+    ("abbreviatedTitle", "Abbreviated title"),
+    ("dueDate", "Due date"),
+    ("domain", "Domain"),
+    ("country", "Country"),
+    ("region", "Region"),
+    ("businessUnitIds", "Business units"),
+    ("notes", "Notes"),
+)
+FIELD_LABELS = dict(MAIN_DETAIL_FIELDS)
+CHANGE_TEXT_MAX = 300
+
+
+def _comparable(value):
+    if isinstance(value, (list, tuple)):
+        return sorted(str(v).strip() for v in value)
+    return str(value if value is not None else "").strip()
+
+
+def plan_update_alert(before: dict, update: dict) -> tuple:
     """
-    FR-3.1: email the tenant's users about a newly added regulation. Runs
-    after the response (BackgroundTasks). Returns the Alerts Log entry, or
-    None when no alert applies. Never raises.
+    Decides, from the record before a PATCH and the fields it wrote, which
+    email (if any) the edit should send. Pure, so it is tested on its own.
+    Returns ("added", []), ("updated", [[field, before, after], ...]) or (None, []).
+      - removed, or not on the Roadmap/Dashboard after the edit: nothing (DL-9);
+      - "Add to Roadmap and Dashboard" switched No -> Yes: "added";
+      - otherwise "updated" if any main detail really changed (same value
+        re-sent, or only a reordering of Business Units, is not a change).
     """
+    if before.get("hidden"):
+        return None, []
+    was_on = before.get("addToRoadmapDashboard") is True
+    now_on = update.get("addToRoadmapDashboard", before.get("addToRoadmapDashboard")) is True
+    if not now_on:
+        return None, []
+    if not was_on:
+        return "added", []
+    changes = [
+        [field, before.get(field), update[field]]
+        for field, _ in MAIN_DETAIL_FIELDS
+        if field in update and _comparable(update[field]) != _comparable(before.get(field))
+    ]
+    return ("updated", changes) if changes else (None, [])
+
+
+def format_change_value(field: str, value, bu_labels: dict) -> str:
+    if field == "dueDate":
+        return format_due_date(value)
+    if field == "businessUnitIds":
+        units = [f"{bu_labels[bu]} ({bu})" if bu_labels.get(bu) else str(bu) for bu in (value or [])]
+        return ", ".join(units) or "Not specified"
+    text = _one_line(value)
+    if not text:
+        return "Not specified"
+    return text if len(text) <= CHANGE_TEXT_MAX else text[: CHANGE_TEXT_MAX - 1] + "…"
+
+
+# --- Orchestration -------------------------------------------------------------
+
+def _send_alert(kind: str, tenant_id: str, reg_id: str, actor_uid: str,
+                changes: Optional[list] = None, db=None, post=None) -> Optional[dict]:
+    """
+    Sends one alert about one regulation and writes its Alerts Log entry.
+    kind: "added" (FR-3.1) or "updated" (FR-3.2, with raw `changes` from
+    plan_update_alert). Runs after the response. Returns the entry, or None
+    when no alert applies. Never raises.
+    """
+    alert_type = "regulation_added" if kind == "added" else "regulation_updated"
     cfg = alert_settings()
     if cfg["mode"] == "off":
         return None
@@ -470,15 +549,21 @@ def send_regulation_added_alert(tenant_id: str, reg_id: str, actor_uid: str, db=
 
         tenant_name, bu_labels, users, prefs, actor = _tenant_context(tenant_ref, actor_uid)
         recipients, opted_out, no_email, removed = select_recipients(users, prefs)
+        rows = [
+            (FIELD_LABELS.get(field, field),
+             format_change_value(field, before, bu_labels),
+             format_change_value(field, after, bu_labels))
+            for field, before, after in (changes or [])
+        ]
         now = datetime.now(timezone.utc)
         message = render_alert(
-            "added", reg, tenant_name=tenant_name, bu_labels=bu_labels, actor=actor,
-            app_base_url=cfg["app_base_url"], when=now,
+            kind, reg, tenant_name=tenant_name, bu_labels=bu_labels, actor=actor,
+            app_base_url=cfg["app_base_url"], when=now, changes=rows or None,
         )
         outcome = deliver(cfg, recipients, message, post=post)
 
         entry = {
-            "type": "regulation_added",
+            "type": alert_type,
             "regulationId": reg_id,
             "regulationTitle": reg.get("title", ""),
             "subject": message["subject"],
@@ -497,19 +582,22 @@ def send_regulation_added_alert(tenant_id: str, reg_id: str, actor_uid: str, db=
             "providerMessageIds": outcome["message_ids"],
             "createdAt": now,
         }
+        if kind == "updated":
+            # Field names only; the before/after values are in the audit log (NFR-2).
+            entry["changedFields"] = [field for field, _, _ in (changes or [])]
         tenant_ref.collection("alertsLog").document().set(entry)
         logger.info(
-            "Alert: regulation_added %s -> %s (%d recipients, %d sent, %d failed, %d opted out, mode=%s)",
-            reg_id, outcome["status"], len(recipients), len(outcome["sent"]),
+            "Alert: %s %s -> %s (%d recipients, %d sent, %d failed, %d opted out, mode=%s)",
+            alert_type, reg_id, outcome["status"], len(recipients), len(outcome["sent"]),
             len(outcome["failed"]), len(opted_out), cfg["mode"],
         )
-        print(f"[alert] regulation_added {reg_id}: {outcome['status']} ({len(outcome['sent'])} sent, mode={cfg['mode']})")
+        print(f"[alert] {alert_type} {reg_id}: {outcome['status']} ({len(outcome['sent'])} sent, mode={cfg['mode']})")
         return entry
     except Exception as e:  # noqa: BLE001 - an alert must never break anything else
-        logger.exception("Alert: regulation_added for %s failed: %s", reg_id, type(e).__name__)
+        logger.exception("Alert: %s for %s failed: %s", alert_type, reg_id, type(e).__name__)
         try:
             db.collection("tenants").document(tenant_id).collection("alertsLog").document().set({
-                "type": "regulation_added",
+                "type": alert_type,
                 "regulationId": reg_id,
                 "triggeredBy": actor_uid,
                 "mode": cfg["mode"],
@@ -522,7 +610,72 @@ def send_regulation_added_alert(tenant_id: str, reg_id: str, actor_uid: str, db=
         return None
 
 
+def send_regulation_added_alert(tenant_id: str, reg_id: str, actor_uid: str, db=None, post=None) -> Optional[dict]:
+    """FR-3.1: a regulation was added to the Roadmap and Dashboard."""
+    return _send_alert("added", tenant_id, reg_id, actor_uid, db=db, post=post)
+
+
+def send_regulation_updated_alert(tenant_id: str, reg_id: str, actor_uid: str, changes: list,
+                                  db=None, post=None) -> Optional[dict]:
+    """FR-3.2: Admin/SME changed the main details of a regulation on the Dashboard."""
+    return _send_alert("updated", tenant_id, reg_id, actor_uid, changes=changes, db=db, post=post)
+
+
 def schedule_regulation_added_alert(background_tasks, tenant_id: str, reg_id: str, actor_uid: str) -> None:
     """The hand-off point. Today: run after the response (BackgroundTasks).
     At first deploy: publish a regulation.added Pub/Sub event instead (OPEN-11)."""
     background_tasks.add_task(send_regulation_added_alert, tenant_id, reg_id, actor_uid)
+
+
+def schedule_regulation_updated_alert(background_tasks, tenant_id: str, reg_id: str, actor_uid: str,
+                                      before: dict, update: dict) -> Optional[str]:
+    """
+    T026 hand-off from PATCH /regulations/{id}. Decides now, from the record
+    before the edit and the fields written, whether an email applies (see
+    plan_update_alert), and schedules it after the response. Returns the kind
+    scheduled ("added" / "updated") or None. At first deploy: publish a
+    regulation.updated Pub/Sub event instead (OPEN-11).
+    """
+    kind, changes = plan_update_alert(before, update)
+    if kind == "added":
+        background_tasks.add_task(send_regulation_added_alert, tenant_id, reg_id, actor_uid)
+    elif kind == "updated":
+        background_tasks.add_task(send_regulation_updated_alert, tenant_id, reg_id, actor_uid, changes)
+    return kind
+
+
+# --- Turning alerts back on (T026) -------------------------------------------------
+
+BREVO_BLOCKED_URL = "https://api.brevo.com/v3/smtp/blockedContacts/"
+
+
+def resubscribe_at_provider(email: str, delete: Optional[Callable] = None) -> str:
+    """
+    Brevo adds a List-Unsubscribe header to every email (removable on its
+    Enterprise plan only), so Gmail and Outlook show their own "Unsubscribe"
+    link. Using it blocks the address at Brevo, outside the app. When the
+    person turns alerts back ON in Regulator, this lifts that block so the
+    app's setting is what decides. Send mode only. Never raises.
+    Returns "unblocked", "not_blocked", "skipped" or "failed".
+    """
+    cfg = alert_settings()
+    email = str(email or "").strip()
+    if cfg["mode"] != "send" or not cfg["api_key"] or "@" not in email:
+        return "skipped"
+    delete = delete or requests.delete
+    try:
+        resp = delete(
+            BREVO_BLOCKED_URL + quote(email, safe=""),
+            headers={"api-key": cfg["api_key"], "accept": "application/json"},
+            timeout=BREVO_TIMEOUT_SECONDS,
+        )
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        logger.warning("Alert: could not reach Brevo to lift a block (%s).", type(e).__name__)
+        return "failed"
+    if resp.status_code == 204:
+        logger.info("Alert: lifted a Brevo block after alerts were turned back on.")
+        return "unblocked"
+    if resp.status_code == 404:
+        return "not_blocked"
+    logger.warning("Alert: Brevo refused to lift a block: %s", _brevo_error(resp))
+    return "failed"

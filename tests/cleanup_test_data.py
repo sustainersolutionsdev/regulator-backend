@@ -191,10 +191,13 @@ def run_cleanup(apply: bool = False, verbose: bool = True) -> dict:
         ]
 
         # T025: Alerts Log entries written for test regulations.
+        test_reg_ids = {ref.id for ref in reg_refs}
         alert_refs = [
             doc.reference
             for doc in tenant_ref.collection("alertsLog").stream()
-            if str((doc.to_dict() or {}).get("regulationTitle", "")).startswith(REGULATION_TITLE_PREFIXES)
+            # T026: also match by regulation id (an update alert records the edited title).
+            if (doc.to_dict() or {}).get("regulationId") in test_reg_ids
+            or str((doc.to_dict() or {}).get("regulationTitle", "")).startswith(REGULATION_TITLE_PREFIXES)
         ]
 
         if verbose:

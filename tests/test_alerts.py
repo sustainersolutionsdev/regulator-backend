@@ -1,10 +1,14 @@
 """
-T025 - email alerts against the running server (FR-3.1, DL-9).
+T025/T026 - email alerts against the running server (FR-3.1, FR-3.2, DL-9).
 
   - GET/PUT /me/email-alerts: each person's own on/off setting, on by default.
   - POST /regulations writes one Alerts Log entry after the response when the
     regulation is on the Roadmap/Dashboard, and none when it isn't.
   - A user who turned alerts off is recorded as skipped.
+  - T026: a main-detail edit writes a "regulation_updated" entry with the
+    changed fields; re-sending the same value, a status change, or taking a
+    regulation off the Dashboard writes none; switching it onto the Dashboard
+    writes a "regulation_added" entry.
 
 The server must run with ALERTS_MODE unset or "log" (the default, and what
 Cloud Build uses), so these tests never send an email. Test regulations use
@@ -70,14 +74,24 @@ def alert_entries(reg_id):
     return [d.to_dict() for d in q.stream()]
 
 
-def wait_for_entry(reg_id):
+def wait_for_entry(reg_id, alert_type=None):
     deadline = time.time() + WAIT_SECONDS
     while time.time() < deadline:
-        entries = alert_entries(reg_id)
+        entries = [e for e in alert_entries(reg_id) if alert_type in (None, e.get("type"))]
         if entries:
             return entries
         time.sleep(1)
     return []
+
+
+def entries_of_type(reg_id, alert_type):
+    return [e for e in alert_entries(reg_id) if e.get("type") == alert_type]
+
+
+def patch_regulation(headers, reg_id, body):
+    r = httpx.patch(f"{BASE_URL}/regulations/{reg_id}", json=body, headers=headers, timeout=TIMEOUT)
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
 @pytest.fixture
@@ -173,3 +187,47 @@ def test_other_tenant_users_are_never_recipients(admin):
     entries = wait_for_entry(reg_id)
     assert len(entries) == 1
     assert uid_of(other) not in entries[0]["recipientUids"]
+
+
+# --- Updated-regulation alert (T026, FR-3.2, DL-9) -------------------------------
+
+def test_main_detail_edit_writes_an_updated_entry(admin):
+    reg_id = create_regulation(admin)
+    assert wait_for_entry(reg_id, "regulation_added")
+    patch_regulation(admin, reg_id, {"due_date": "2027-09-30"})
+    entries = wait_for_entry(reg_id, "regulation_updated")
+    assert len(entries) == 1, "no regulation_updated entry within the wait"
+    assert entries[0]["changedFields"] == ["dueDate"]
+    assert entries[0]["subject"] == "[Regulator] Updated: T025 Alert — due date changed"
+    assert entries[0]["triggeredBy"] == uid_of(admin)
+
+
+def test_resending_the_same_value_sends_nothing(admin):
+    reg_id = create_regulation(admin)
+    patch_regulation(admin, reg_id, {"due_date": "2027-02-18", "domain": "Batteries"})
+    time.sleep(5)
+    assert entries_of_type(reg_id, "regulation_updated") == []
+
+
+def test_status_change_sends_nothing(admin):
+    reg_id = create_regulation(admin)
+    r = httpx.patch(f"{BASE_URL}/regulations/{reg_id}/bu-status/BU1", json={"status": "pending", "note": "T026"},
+                    headers=admin, timeout=TIMEOUT)
+    assert r.status_code == 200, r.text
+    time.sleep(5)
+    assert entries_of_type(reg_id, "regulation_updated") == []
+
+
+def test_switching_onto_the_dashboard_sends_the_new_regulation_email(admin):
+    reg_id = create_regulation(admin, on_dashboard=False)
+    patch_regulation(admin, reg_id, {"add_to_roadmap_dashboard": True})
+    entries = wait_for_entry(reg_id, "regulation_added")
+    assert len(entries) == 1
+    assert entries_of_type(reg_id, "regulation_updated") == []
+
+
+def test_taking_off_the_dashboard_sends_nothing(admin):
+    reg_id = create_regulation(admin)
+    patch_regulation(admin, reg_id, {"add_to_roadmap_dashboard": False, "notes": "Taken off for T026"})
+    time.sleep(5)
+    assert entries_of_type(reg_id, "regulation_updated") == []

@@ -366,3 +366,161 @@ def test_unexpected_error_is_recorded_not_raised(monkeypatch):
     assert entry is None and post.calls == []
     logs = alert_logs(store)
     assert len(logs) == 1 and logs[0]["status"] == "failed" and logs[0]["error"] == "RuntimeError"
+
+
+# ==================================================================================
+# T026 - updated-regulation alert (FR-3.2, DL-9) and lifting a Brevo block
+# ==================================================================================
+
+from core.alerts import (  # noqa: E402
+    format_change_value,
+    plan_update_alert,
+    resubscribe_at_provider,
+    send_regulation_updated_alert,
+)
+
+ON = {"addToRoadmapDashboard": True, "title": "Old title", "dueDate": "2025-08-18",
+      "businessUnitIds": ["BU1", "BU2"], "notes": "", "hidden": False}
+
+
+# --- Which edits email -------------------------------------------------------------
+
+def test_main_detail_change_is_an_update():
+    kind, changes = plan_update_alert(ON, {"title": "New title", "dueDate": "2027-08-18", "lastUpdated": "x"})
+    assert kind == "updated"
+    assert changes == [["title", "Old title", "New title"], ["dueDate", "2025-08-18", "2027-08-18"]]
+
+
+def test_same_values_resent_are_not_a_change():
+    kind, _ = plan_update_alert(ON, {"title": " Old title ", "businessUnitIds": ["BU2", "BU1"], "notes": None})
+    assert kind is None
+
+
+def test_only_the_roadmap_flag_resent_is_not_a_change():
+    assert plan_update_alert(ON, {"addToRoadmapDashboard": True, "lastUpdated": "x"}) == (None, [])
+
+
+def test_switching_onto_the_dashboard_is_a_new_regulation():
+    before = {**ON, "addToRoadmapDashboard": False}
+    assert plan_update_alert(before, {"addToRoadmapDashboard": True, "title": "Also renamed"}) == ("added", [])
+
+
+@pytest.mark.parametrize("before,update", [
+    (ON, {"addToRoadmapDashboard": False, "title": "Taken off"}),            # Yes -> No
+    ({**ON, "addToRoadmapDashboard": False}, {"title": "Still off"}),          # stays off
+    ({**ON, "hidden": True}, {"title": "Removed"}),                            # removed
+])
+def test_no_email_when_not_on_the_dashboard_after_the_edit(before, update):
+    assert plan_update_alert(before, update) == (None, [])
+
+
+def test_change_values_are_shown_readably():
+    labels = {"BU1": "Default"}
+    assert format_change_value("dueDate", "2027-08-18", labels) == "18 Aug 2027"
+    assert format_change_value("businessUnitIds", ["BU1", "BU9"], labels) == "Default (BU1), BU9"
+    assert format_change_value("notes", "", labels) == "Not specified"
+    long = format_change_value("notes", "x" * 400, labels)
+    assert len(long) == 300 and long.endswith("…")
+
+
+# --- Content -----------------------------------------------------------------------
+
+def render_update(changes):
+    reg = {"id": "r1", "title": "Full Title", "abbreviatedTitle": "EU Battery Due Diligence",
+           "dueDate": "2027-08-18", "businessUnitIds": ["BU1"]}
+    return render_alert("updated", reg, tenant_name="Acme", bu_labels={"BU1": "Default"},
+                        actor={"displayName": "Priya Shah", "role": "sme"},
+                        app_base_url="http://localhost:5173", when=WHEN, changes=changes)
+
+
+def test_update_subject_names_what_changed():
+    one = render_update([("Due date", "18 Aug 2025", "18 Aug 2027")])
+    assert one["subject"] == "[Regulator] Updated: EU Battery Due Diligence — due date changed"
+    two = render_update([("Due date", "a", "b"), ("Notes", "c", "d")])
+    assert two["subject"] == "[Regulator] Updated: EU Battery Due Diligence — 2 details changed"
+
+
+def test_update_email_has_the_what_changed_table():
+    msg = render_update([("Due date", "18 Aug 2025", "18 Aug 2027")])
+    html = msg["html"]
+    for text in ("Regulation updated", "What changed", "Before", "Now", "18 Aug 2025", "Updated by Priya Shah (SME)",
+                 "when a regulation is updated"):
+        assert text in html, text
+    assert "- Due date: 18 Aug 2025 -> 18 Aug 2027" in msg["text"]
+
+
+# --- End to end (fake database) ----------------------------------------------------
+
+def test_updated_alert_writes_its_log_with_changed_fields(monkeypatch):
+    store = tenant_store({"dueDate": "2027-08-18"})
+    monkeypatch.setenv("ALERTS_MODE", "send")
+    monkeypatch.setenv("BREVO_API_KEY", "test-key")
+    monkeypatch.setenv("ALERT_SENDER_EMAIL", "sender@example.com")
+    post = FakePost()
+    entry = send_regulation_updated_alert(
+        "t1", "r1", "u-admin", [["dueDate", "2025-08-18", "2027-08-18"], ["businessUnitIds", ["BU1"], ["BU1", "BU2"]]],
+        db=FakeDb(store), post=post,
+    )
+    assert entry["type"] == "regulation_updated" and entry["changedFields"] == ["dueDate", "businessUnitIds"]
+    assert entry["subject"].endswith("— 2 details changed")
+    body = post.calls[0]["json"]["htmlContent"]
+    assert "18 Aug 2025" in body and "Default (BU1), Printers (BU2)" in body
+    assert [log["type"] for log in alert_logs(store)] == ["regulation_updated"]
+
+
+def test_updated_alert_skips_a_regulation_taken_off_since(monkeypatch):
+    store = tenant_store({"addToRoadmapDashboard": False})
+    monkeypatch.setenv("ALERTS_MODE", "send")
+    post = FakePost()
+    assert send_regulation_updated_alert("t1", "r1", "u-admin", [["title", "a", "b"]], db=FakeDb(store), post=post) is None
+    assert post.calls == [] and alert_logs(store) == []
+
+
+class FakeBackground:
+    def __init__(self):
+        self.tasks = []
+
+    def add_task(self, fn, *args):
+        self.tasks.append((fn.__name__, args))
+
+
+def test_schedule_picks_the_right_email():
+    bg = FakeBackground()
+    assert alerts.schedule_regulation_updated_alert(bg, "t1", "r1", "u", ON, {"title": "New"}) == "updated"
+    assert alerts.schedule_regulation_updated_alert(bg, "t1", "r1", "u", {**ON, "addToRoadmapDashboard": False},
+                                                    {"addToRoadmapDashboard": True}) == "added"
+    assert alerts.schedule_regulation_updated_alert(bg, "t1", "r1", "u", ON, {"title": "Old title"}) is None
+    assert [name for name, _ in bg.tasks] == ["send_regulation_updated_alert", "send_regulation_added_alert"]
+
+
+# --- Lifting a Brevo block when alerts are turned back on ---------------------------
+
+class FakeDelete:
+    def __init__(self, answer):
+        self.answer, self.calls = answer, []
+
+    def __call__(self, url, headers=None, timeout=None):
+        self.calls.append(url)
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+@pytest.mark.parametrize("answer,expected", [
+    (FakeResp(204), "unblocked"),
+    (FakeResp(404, {"code": "document_not_found"}), "not_blocked"),
+    (FakeResp(401, {"message": "Key not found"}), "failed"),
+    (requests.exceptions.ConnectionError(), "failed"),
+])
+def test_resubscribe_in_send_mode(monkeypatch, answer, expected):
+    monkeypatch.setenv("ALERTS_MODE", "send")
+    monkeypatch.setenv("BREVO_API_KEY", "test-key")
+    delete = FakeDelete(answer)
+    assert resubscribe_at_provider("sam+x@acme.example", delete=delete) == expected
+    assert delete.calls == ["https://api.brevo.com/v3/smtp/blockedContacts/sam%2Bx%40acme.example"]
+
+
+def test_resubscribe_does_nothing_outside_send_mode(monkeypatch):
+    monkeypatch.setenv("ALERTS_MODE", "log")
+    delete = FakeDelete(FakeResp(204))
+    assert resubscribe_at_provider("sam@acme.example", delete=delete) == "skipped" and delete.calls == []

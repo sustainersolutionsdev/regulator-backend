@@ -14,6 +14,12 @@ person turns alerts off (and back on) for themselves only. On by default:
 no saved value means on. core/alerts.py reads `emailAlerts` when choosing
 who to email.
 
+T026 - Turning alerts back ON also lifts any block at Brevo. Brevo adds a
+List-Unsubscribe header to every email, so the inbox shows its own
+"Unsubscribe" link, and using it blocks the address at Brevo, outside the
+app. Lifting it when the person turns alerts on keeps this setting the one
+that decides (core/alerts.py resubscribe_at_provider; send mode only).
+
 Stored here, NOT on the users/{uid} directory record: GET /users lists every
 document in the users collection, so a preference written for an account
 without a directory record would otherwise appear as an empty People
@@ -26,7 +32,7 @@ alerts were off (Alerts Log).
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, StrictBool
 
 from core.deps import RequestContext, get_current_context
@@ -91,10 +97,17 @@ def get_email_alerts(ctx: RequestContext = Depends(get_current_context)):
 @router.put("/me/email-alerts")
 def put_email_alerts(
     payload: EmailAlertsRequest,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(get_current_context),
 ):
     _pref_ref(ctx).set(
         {"emailAlerts": payload.enabled, "emailAlertsUpdatedAt": datetime.now(timezone.utc)},
         merge=True,
     )
+    if payload.enabled:
+        record = ctx.tenant_ref.collection("users").document(ctx.uid).get()
+        email = (record.to_dict() or {}).get("email") if record.exists else None
+        if email:
+            from core.alerts import resubscribe_at_provider
+            background_tasks.add_task(resubscribe_at_provider, email)
     return {"enabled": payload.enabled}

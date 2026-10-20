@@ -55,7 +55,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from google.cloud import firestore
 from pydantic import BaseModel
@@ -154,6 +154,7 @@ class UpdateRegulationRequest(BaseModel):
 def update_regulation(
     reg_id: str,
     payload: UpdateRegulationRequest,
+    background_tasks: BackgroundTasks,
     ctx: RequestContext = Depends(get_current_context),
 ):
     require_admin_or_sme(ctx)
@@ -192,6 +193,10 @@ def update_regulation(
         actor_role=ctx.role,
         action="update_regulation",
     )
+    # T026 (FR-3.2, DL-9): email alert after the response: main-detail changes only;
+    # "Add to Roadmap and Dashboard" No -> Yes sends the "New regulation" email.
+    from core.alerts import schedule_regulation_updated_alert
+    schedule_regulation_updated_alert(background_tasks, ctx.tenant_id, reg_id, ctx.uid, current, update)
     return with_document_flags({"id": reg_id, **current, **update})
 
 
