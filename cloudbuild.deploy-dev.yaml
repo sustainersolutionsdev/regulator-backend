@@ -50,8 +50,9 @@ steps:
       - --concurrency=40
       - --timeout=60
       - --labels=app=regulator,component=api,env=dev
-      # "^@^" makes @ the separator, because CORS_ORIGINS itself contains commas.
-      - --set-env-vars=^@^GCP_PROJECT=${PROJECT_ID}@DOCUMENTS_BUCKET=${PROJECT_ID}-documents@CORS_ORIGINS=${_CORS_ORIGINS}@ALERTS_DISPATCH=pubsub@ALERTS_TOPIC=regulator-alerts@APP_MODULE=main:app
+      # "^|^" makes | the separator: CORS_ORIGINS contains commas and the sender
+      # address contains "@", so neither can be the separator.
+      - --set-env-vars=^|^GCP_PROJECT=${PROJECT_ID}|DOCUMENTS_BUCKET=${PROJECT_ID}-documents|CORS_ORIGINS=${_CORS_ORIGINS}|ALERTS_DISPATCH=pubsub|ALERTS_TOPIC=regulator-alerts|APP_MODULE=main:app
 
   - id: deploy-alerts-worker
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -71,7 +72,7 @@ steps:
       - --concurrency=10
       - --timeout=120
       - --labels=app=regulator,component=alerts-worker,env=dev
-      - --set-env-vars=^@^GCP_PROJECT=${PROJECT_ID}@APP_MODULE=worker:app@ALERTS_MODE=${_ALERTS_MODE}@APP_BASE_URL=${_APP_URL}@ALERT_SENDER_EMAIL=${_SENDER_EMAIL}@ALERT_SENDER_NAME=Regulator Alerts
+      - --set-env-vars=^|^GCP_PROJECT=${PROJECT_ID}|APP_MODULE=worker:app|ALERTS_MODE=${_ALERTS_MODE}|APP_BASE_URL=${_APP_URL}|ALERT_SENDER_EMAIL=${_SENDER_EMAIL}|ALERT_SENDER_NAME=Regulator Alerts
       - --set-secrets=BREVO_API_KEY=brevo-api-key:latest
 
 options:
