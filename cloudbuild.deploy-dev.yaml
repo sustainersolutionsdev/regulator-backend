@@ -46,6 +46,7 @@ steps:
       - --min-instances=0           # TAD 4.2: cold start accepted for now
       - --max-instances=3
       - --cpu=1
+      - --cpu-boost                 # full CPU while starting: a cold start took 19 s without it (Oct 22)
       - --memory=512Mi
       - --concurrency=40
       - --timeout=60
@@ -68,6 +69,7 @@ steps:
       - --min-instances=0
       - --max-instances=2
       - --cpu=1
+      - --cpu-boost                 # full CPU while starting: a cold start took 19 s without it (Oct 22)
       - --memory=512Mi
       - --concurrency=10
       - --timeout=120
