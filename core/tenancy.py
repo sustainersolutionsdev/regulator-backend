@@ -1,10 +1,11 @@
 from dotenv import load_dotenv
 load_dotenv()
 from google.cloud import firestore
+from core.config import GCP_PROJECT
 from datetime import datetime, timezone
 from core.audit import write_with_audit
 
-db = firestore.Client(project="regulator-dev")
+db = firestore.Client(project=GCP_PROJECT)  # OPEN-11: per environment (core/config.py)
 
 
 def provision_tenant(tenant_id: str, tenant_name: str) -> None:

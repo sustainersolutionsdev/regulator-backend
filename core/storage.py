@@ -3,7 +3,9 @@ from datetime import datetime, timezone
 import re
 import uuid
 
-BUCKET_NAME = "regulator-dev-documents"
+from core.config import DOCUMENTS_BUCKET, GCP_PROJECT
+
+BUCKET_NAME = DOCUMENTS_BUCKET  # OPEN-11: "<project>-documents" unless DOCUMENTS_BUCKET is set
 
 # Confirmed by Srinivas (9/17): PDF/Word/Excel/text plus PowerPoint, 25MB.
 # T022: each allowed extension maps to the one content type the file is
@@ -25,7 +27,7 @@ MAX_FILENAME_LENGTH = 200
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
-_storage_client = storage.Client(project="regulator-dev")
+_storage_client = storage.Client(project=GCP_PROJECT)
 
 
 def clean_filename(filename: str) -> str:

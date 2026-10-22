@@ -2,9 +2,10 @@ import logging
 from fastapi import Header, HTTPException, Depends
 from firebase_admin import auth
 from google.cloud import firestore
+from core.config import GCP_PROJECT
 from typing import Optional
 
-db = firestore.Client(project="regulator-dev")
+db = firestore.Client(project=GCP_PROJECT)  # OPEN-11: per environment (core/config.py)
 logger = logging.getLogger(__name__)
 
 

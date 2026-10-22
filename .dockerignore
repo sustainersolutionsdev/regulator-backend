@@ -1,0 +1,24 @@
+# Never in the image: local secrets and dev-only files (OPEN-11).
+.env
+.env.*
+secrets/
+*.json
+.git/
+.gitignore
+.pre-commit-config.yaml
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+tests/
+tools/
+scripts/
+CHANGELOG.md
+cloudbuild*.yaml
+Dockerfile
+.dockerignore
+# dev-only helpers that live in core/
+core/test_rollback.py
+core/verify_claims.py
+core/get_test_token.py

@@ -13,6 +13,7 @@ from typing import Optional
 import os
 import secrets
 from core.audit import write_with_audit
+from core.config import GCP_PROJECT, init_firebase
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +43,11 @@ def hide_user(tenant_id: str, target_uid: str, actor_uid: str, actor_role: str) 
         action="hide_user",
     )
 
-# Initialize the Admin SDK using the same service account key
-if not firebase_admin._apps:
-    cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-    firebase_admin.initialize_app(cred)
+# Initialize the Admin SDK: the local key file, or the Cloud Run service's own
+# identity when deployed (OPEN-11; see core/config.py).
+init_firebase()
 
-db = firestore.Client(project="regulator-dev")
+db = firestore.Client(project=GCP_PROJECT)  # OPEN-11: per environment (core/config.py)
 
 VALID_ROLES = {"admin", "sme", "user"}
 

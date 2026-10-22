@@ -1,0 +1,78 @@
+# Backend deploy to regulator-dev (OPEN-11). MANUAL: run from the
+# backend-deploy-dev trigger, which always builds master:
+#   gcloud builds triggers run backend-deploy-dev --branch=master
+#
+# Builds one image, tags it with the commit, and deploys it twice:
+#   regulator-api            public URL; every call still needs a Firebase
+#                            ID token (core/deps.py)
+#   regulator-alerts-worker  private; only the Pub/Sub push subscription can
+#                            call it (--no-allow-unauthenticated)
+# The same tagged image is what regulator-beta will receive later (TAD 12.2).
+#
+# CI (lint/tests on feature/*) stays in cloudbuild.yaml; this file only deploys.
+
+substitutions:
+  _REGION: us-central1          # must match Firestore (OPEN-11 point 5)
+  _REPO: regulator
+  _APP_URL: https://regulator-dev.web.app
+  _CORS_ORIGINS: https://regulator-dev.web.app,https://regulator-dev.firebaseapp.com,http://localhost:5173
+  _ALERTS_MODE: send            # dev deploy sends real alert emails (test domains are still blocked)
+  _SENDER_EMAIL: sustainersolutionsdev@gmail.com
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/regulator-backend:${SHORT_SHA}
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: [push, "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/regulator-backend:${SHORT_SHA}"]
+
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - regulator-api
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/regulator-backend:${SHORT_SHA}
+      - --region=${_REGION}
+      - --service-account=regulator-api-sa@${PROJECT_ID}.iam.gserviceaccount.com
+      - --allow-unauthenticated
+      - --min-instances=0           # TAD 4.2: cold start accepted for now
+      - --max-instances=3
+      - --cpu=1
+      - --memory=512Mi
+      - --concurrency=40
+      - --timeout=60
+      - --labels=app=regulator,component=api,env=dev
+      # "^@^" makes @ the separator, because CORS_ORIGINS itself contains commas.
+      - --set-env-vars=^@^GCP_PROJECT=${PROJECT_ID}@DOCUMENTS_BUCKET=${PROJECT_ID}-documents@CORS_ORIGINS=${_CORS_ORIGINS}@ALERTS_DISPATCH=pubsub@ALERTS_TOPIC=regulator-alerts@APP_MODULE=main:app
+
+  - id: deploy-alerts-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - regulator-alerts-worker
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/regulator-backend:${SHORT_SHA}
+      - --region=${_REGION}
+      - --service-account=regulator-alerts-sa@${PROJECT_ID}.iam.gserviceaccount.com
+      - --no-allow-unauthenticated
+      - --min-instances=0
+      - --max-instances=2
+      - --cpu=1
+      - --memory=512Mi
+      - --concurrency=10
+      - --timeout=120
+      - --labels=app=regulator,component=alerts-worker,env=dev
+      - --set-env-vars=^@^GCP_PROJECT=${PROJECT_ID}@APP_MODULE=worker:app@ALERTS_MODE=${_ALERTS_MODE}@APP_BASE_URL=${_APP_URL}@ALERT_SENDER_EMAIL=${_SENDER_EMAIL}@ALERT_SENDER_NAME=Regulator Alerts
+      - --set-secrets=BREVO_API_KEY=brevo-api-key:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
