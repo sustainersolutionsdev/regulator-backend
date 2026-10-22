@@ -22,10 +22,9 @@ DL-9    (Addendum A v1.7, Srinivas Oct 19 2026):
 Flow (TAD Sec. 9, process 5.0). POST /regulations saves the record, then
 hands send_regulation_added_alert() to FastAPI BackgroundTasks, so the save
 returns before any email is sent and a slow or failing email provider
-never blocks it. At first deploy the hand-off becomes a Pub/Sub
-"regulation.added" event consumed by the Alerts Worker; the worker calls
-the same function (schedule_regulation_added_alert is the only line that
-changes - OPEN-11).
+never blocks it. Deployed (ALERTS_DISPATCH=pubsub), the hand-off is a
+Pub/Sub event consumed by the Alerts Worker (worker.py), which calls the
+same send functions (OPEN-11 point 6; see core/dispatch.py).
 
 Provider: Brevo transactional email API (free plan: 300 emails a day for
 the whole account). One API call per recipient, so no recipient ever sees
@@ -632,10 +631,26 @@ def send_regulation_updated_alert(tenant_id: str, reg_id: str, actor_uid: str, c
     return _send_alert("updated", tenant_id, reg_id, actor_uid, changes=changes, db=db, post=post)
 
 
+def _publish_or_fallback(background_tasks, event: dict, fn, *args) -> None:
+    """ALERTS_DISPATCH=pubsub (deployed): publish the event for the Alerts
+    Worker. If Pub/Sub can't take it, fall back to running it after the
+    response, so the alert is still attempted (and logged either way).
+    ALERTS_DISPATCH=inline (local, CI): run after the response, as in M3."""
+    from core.dispatch import dispatch_mode, publish_event
+
+    if dispatch_mode() == "pubsub":
+        if publish_event(event):
+            return
+        logger.warning("Alert: falling back to in-process sending for %s.", event.get("type"))
+    background_tasks.add_task(fn, *args)
+
+
 def schedule_regulation_added_alert(background_tasks, tenant_id: str, reg_id: str, actor_uid: str) -> None:
-    """The hand-off point. Today: run after the response (BackgroundTasks).
-    At first deploy: publish a regulation.added Pub/Sub event instead (OPEN-11)."""
-    background_tasks.add_task(send_regulation_added_alert, tenant_id, reg_id, actor_uid)
+    """The hand-off point from POST /regulations (and No -> Yes on the
+    Roadmap/Dashboard flag). OPEN-11 point 6: a Pub/Sub regulation.added event
+    when deployed; BackgroundTasks locally."""
+    event = {"type": "regulation.added", "tenantId": tenant_id, "regulationId": reg_id, "actorUid": actor_uid}
+    _publish_or_fallback(background_tasks, event, send_regulation_added_alert, tenant_id, reg_id, actor_uid)
 
 
 def schedule_regulation_updated_alert(background_tasks, tenant_id: str, reg_id: str, actor_uid: str,
@@ -644,14 +659,17 @@ def schedule_regulation_updated_alert(background_tasks, tenant_id: str, reg_id: 
     T026 hand-off from PATCH /regulations/{id}. Decides now, from the record
     before the edit and the fields written, whether an email applies (see
     plan_update_alert), and schedules it after the response. Returns the kind
-    scheduled ("added" / "updated") or None. At first deploy: publish a
-    regulation.updated Pub/Sub event instead (OPEN-11).
+    scheduled ("added" / "updated") or None. Deployed: published as a
+    Pub/Sub event (OPEN-11 point 6, see _publish_or_fallback).
     """
     kind, changes = plan_update_alert(before, update)
     if kind == "added":
-        background_tasks.add_task(send_regulation_added_alert, tenant_id, reg_id, actor_uid)
+        schedule_regulation_added_alert(background_tasks, tenant_id, reg_id, actor_uid)
     elif kind == "updated":
-        background_tasks.add_task(send_regulation_updated_alert, tenant_id, reg_id, actor_uid, changes)
+        event = {"type": "regulation.updated", "tenantId": tenant_id, "regulationId": reg_id,
+                 "actorUid": actor_uid, "changes": changes}
+        _publish_or_fallback(background_tasks, event, send_regulation_updated_alert,
+                             tenant_id, reg_id, actor_uid, changes)
     return kind
 
 

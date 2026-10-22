@@ -12,9 +12,10 @@ from core.users import create_user_and_get_reset_link
 from core.tenancy import create_regulation, validate_regulation_payload, list_regulations
 from core.storage import upload_document, BUCKET_NAME
 
-if not firebase_admin._apps:
-    cred = credentials.Certificate(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-    firebase_admin.initialize_app(cred)
+from core.config import cors_origins, init_firebase
+
+# OPEN-11: the local key file, or the Cloud Run service's own identity.
+init_firebase()
 
 from fastapi.middleware.cors import CORSMiddleware
 from core.deps import get_current_context, require_bu_write_access, require_admin_or_sme, RequestContext
@@ -23,7 +24,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=cors_origins(),  # OPEN-11: CORS_ORIGINS per environment
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

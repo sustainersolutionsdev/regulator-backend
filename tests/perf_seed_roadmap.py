@@ -33,7 +33,9 @@ import httpx
 from core.get_test_token import get_id_token
 from core.tenancy import db
 
-BASE_URL = "http://127.0.0.1:8000"
+# OPEN-11: set PERF_BASE_URL to time the deployed API, e.g.
+#   $env:PERF_BASE_URL = "https://regulator-api-....run.app"; python tests\\perf_seed_roadmap.py --time
+BASE_URL = os.environ.get("PERF_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 TENANT_ID = "test-tenant-001"
 TITLE_PREFIX = "T015 Perf Regulation "
 DOMAINS = ["Batteries", "Chemicals", "Energy", "Packaging", "Recycling", "Climate", "Materials"]

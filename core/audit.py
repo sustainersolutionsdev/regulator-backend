@@ -1,9 +1,10 @@
 from typing import Optional
 
 from google.cloud import firestore
+from core.config import GCP_PROJECT
 from datetime import datetime, timezone
 
-db = firestore.Client(project="regulator-dev")
+db = firestore.Client(project=GCP_PROJECT)  # OPEN-11: per environment (core/config.py)
 
 
 @firestore.transactional

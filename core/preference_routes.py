@@ -109,5 +109,10 @@ def put_email_alerts(
         email = (record.to_dict() or {}).get("email") if record.exists else None
         if email:
             from core.alerts import resubscribe_at_provider
-            background_tasks.add_task(resubscribe_at_provider, email)
+            from core.dispatch import dispatch_mode, publish_event
+            # OPEN-11 point 6: deployed, the Alerts Worker lifts the block (it
+            # holds the Brevo key; the event carries the user ID, not the address).
+            event = {"type": "alerts.resubscribe", "tenantId": ctx.tenant_id, "uid": ctx.uid}
+            if not (dispatch_mode() == "pubsub" and publish_event(event)):
+                background_tasks.add_task(resubscribe_at_provider, email)
     return {"enabled": payload.enabled}
