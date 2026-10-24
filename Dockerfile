@@ -16,6 +16,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY core ./core
 COPY main.py worker.py ./
+# Compile the app's own code at build time (Oct 23, cold start). The image runs
+# with PYTHONDONTWRITEBYTECODE and as a user who can't write to /app, so
+# without this every new server recompiled it on start. pip already does the
+# same for the installed libraries.
+RUN python -m compileall -q core main.py worker.py
 
 RUN useradd --create-home --uid 10001 app
 USER app

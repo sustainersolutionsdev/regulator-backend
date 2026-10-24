@@ -7,7 +7,6 @@ import requests
 from fastapi import HTTPException
 from firebase_admin import credentials, auth, exceptions as firebase_exceptions
 from google.api_core import exceptions as google_exceptions
-from google.cloud import firestore
 from datetime import datetime, timezone
 from typing import Optional
 import os
@@ -47,7 +46,7 @@ def hide_user(tenant_id: str, target_uid: str, actor_uid: str, actor_role: str) 
 # identity when deployed (OPEN-11; see core/config.py).
 init_firebase()
 
-db = firestore.Client(project=GCP_PROJECT)  # OPEN-11: per environment (core/config.py)
+from core.clients import db  # one shared client (core/clients.py)
 
 VALID_ROLES = {"admin", "sme", "user"}
 

@@ -62,7 +62,7 @@ from pydantic import BaseModel
 
 from core.audit import write_with_audit
 from core.deps import RequestContext, get_current_context, require_admin_or_sme, require_bu_write_access
-from core.storage import BUCKET_NAME, _storage_client, content_type_for, upload_document
+from core.storage import BUCKET_NAME, content_type_for, storage_client, upload_document
 
 router = APIRouter()
 
@@ -397,7 +397,7 @@ def download_regulation_document(
     if not rest or ".." in rest.split("/"):
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    blob = _storage_client.bucket(BUCKET_NAME).blob(f"tenants/{ctx.tenant_id}/{rest}")
+    blob = storage_client().bucket(BUCKET_NAME).blob(f"tenants/{ctx.tenant_id}/{rest}")
     if not blob.exists():
         raise HTTPException(status_code=404, detail="Document not found.")
     content = blob.download_as_bytes()

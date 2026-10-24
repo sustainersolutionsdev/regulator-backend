@@ -5,7 +5,7 @@ from core.config import GCP_PROJECT
 from datetime import datetime, timezone
 from core.audit import write_with_audit
 
-db = firestore.Client(project=GCP_PROJECT)  # OPEN-11: per environment (core/config.py)
+from core.clients import db  # one shared client (core/clients.py)
 
 
 def provision_tenant(tenant_id: str, tenant_name: str) -> None:
