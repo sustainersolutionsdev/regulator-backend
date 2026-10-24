@@ -4,7 +4,7 @@ from google.cloud import firestore
 from core.config import GCP_PROJECT
 from datetime import datetime, timezone
 
-db = firestore.Client(project=GCP_PROJECT)  # OPEN-11: per environment (core/config.py)
+from core.clients import db  # one shared client (core/clients.py)
 
 
 @firestore.transactional

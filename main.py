@@ -34,6 +34,18 @@ app.add_middleware(
     max_age=7200,
 )
 
+
+@app.get("/health")  # not /healthz: Cloud Run reserves some paths ending in "z"
+def health():
+    """
+    Wake-up call (Oct 23). regulator-dev keeps no server running while idle,
+    so the web app calls this the moment it opens: by the time someone has
+    typed their password, the server has usually finished starting. Needs no
+    token and reads no data, so it reveals nothing about any company.
+    """
+    return {"status": "ok"}
+
+
 @app.get("/me")
 def whoami(ctx: RequestContext = Depends(get_current_context)):
     """Sanity endpoint â€” proves the middleware correctly decodes the token."""

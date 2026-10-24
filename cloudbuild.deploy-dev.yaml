@@ -18,6 +18,16 @@ substitutions:
   _CORS_ORIGINS: https://regulator-dev.web.app,https://regulator-dev.firebaseapp.com,http://localhost:5173
   _ALERTS_MODE: send            # dev deploy sends real alert emails (test domains are still blocked)
   _SENDER_EMAIL: sustainersolutionsdev@gmail.com
+  # API instances (Oct 23 decision: lowest cost for dev and demos).
+  # Min 0: no server runs while nobody uses dev, so idle cost is zero; the
+  #   first visit after ~15 minutes idle waits for a start, and the web app
+  #   hides most of that by waking the API as soon as it opens (GET /health).
+  # Max 1: requests that arrive while the server is starting wait for it
+  #   instead of starting a second one (that made the Dashboard take ~24 s on
+  #   Oct 22). One instance is plenty for development, testing and demos.
+  # regulator-beta will use min 1 (one server always warm, ~USD 10/month).
+  _API_MIN_INSTANCES: "0"
+  _API_MAX_INSTANCES: "1"
 
 steps:
   - id: build
@@ -43,8 +53,8 @@ steps:
       - --region=${_REGION}
       - --service-account=regulator-api-sa@${PROJECT_ID}.iam.gserviceaccount.com
       - --allow-unauthenticated
-      - --min-instances=0           # TAD 4.2: cold start accepted for now
-      - --max-instances=3
+      - --min-instances=${_API_MIN_INSTANCES}
+      - --max-instances=${_API_MAX_INSTANCES}
       - --cpu=1
       - --cpu-boost                 # full CPU while starting: a cold start took 19 s without it (Oct 22)
       - --memory=512Mi

@@ -1,4 +1,3 @@
-from google.cloud import storage
 from datetime import datetime, timezone
 import re
 import uuid
@@ -27,7 +26,24 @@ MAX_FILENAME_LENGTH = 200
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
-_storage_client = storage.Client(project=GCP_PROJECT)
+_client = None
+
+
+def storage_client():
+    """
+    The Cloud Storage client, created on first use (Oct 23, cold-start work).
+
+    Only document upload and download need it, so the storage library (about
+    70 modules) is no longer loaded, and no client is created, while the
+    server starts. The first document action after a cold start pays a
+    fraction of a second for it instead of every first request.
+    """
+    global _client
+    if _client is None:
+        from google.cloud import storage
+
+        _client = storage.Client(project=GCP_PROJECT)
+    return _client
 
 
 def clean_filename(filename: str) -> str:
@@ -86,7 +102,7 @@ def upload_document(
 
     stored_type = CONTENT_TYPES[ext]
     blob_path = f"tenants/{tenant_id}/regulation-documents/{uuid.uuid4()}-{filename}"
-    bucket = _storage_client.bucket(BUCKET_NAME)
+    bucket = storage_client().bucket(BUCKET_NAME)
     blob = bucket.blob(blob_path)
     blob.upload_from_string(file_bytes, content_type=stored_type)
 
