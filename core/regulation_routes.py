@@ -293,7 +293,7 @@ def update_bu_status(
 @router.post("/regulations/{reg_id}/documents")
 async def add_regulation_document(
     reg_id: str,
-    bu_code: str = Form(...),
+    bu_code: Optional[str] = Form(None),
     file: UploadFile = File(...),
     ctx: RequestContext = Depends(get_current_context),
 ):
@@ -302,10 +302,18 @@ async def add_regulation_document(
     Units. Users: their own Business Unit(s) only (DL-8). The document is
     tagged with that Business Unit and the uploader; allowed types and the
     25 MB limit are the same as Add Regulation (core/storage.py).
+
+    Without bu_code (Srinivas, Oct 24, item 6: upload from the Roadmap Edit
+    panel): a regulation-wide document, like those attached on Add
+    Regulation. Admin/SME only, since it applies to every unit.
     """
     reg_ref, current = _get_live_regulation(ctx, reg_id)
-    require_bu_write_access(bu_code, ctx)
-    _require_bu_on_regulation(bu_code, current)
+    bu_code = (bu_code or "").strip() or None
+    if bu_code is None:
+        require_admin_or_sme(ctx)
+    else:
+        require_bu_write_access(bu_code, ctx)
+        _require_bu_on_regulation(bu_code, current)
 
     file_bytes = await file.read()
     try:
@@ -319,7 +327,7 @@ async def add_regulation_document(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    entry = {**meta, "buCode": bu_code}
+    entry = {**meta, "buCode": bu_code} if bu_code else {**meta}
     now = datetime.now(timezone.utc)
     write_with_audit(
         tenant_id=ctx.tenant_id,
