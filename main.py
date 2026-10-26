@@ -12,7 +12,7 @@ from core.users import create_user_and_get_reset_link
 from core.tenancy import create_regulation, validate_regulation_payload, list_regulations
 from core.storage import upload_document, BUCKET_NAME
 
-from core.config import cors_origins, init_firebase
+from core.config import APP_COMMIT, APP_VERSION, cors_origins, init_firebase
 
 # OPEN-11: the local key file, or the Cloud Run service's own identity.
 init_firebase()
@@ -42,8 +42,9 @@ def health():
     so the web app calls this the moment it opens: by the time someone has
     typed their password, the server has usually finished starting. Needs no
     token and reads no data, so it reveals nothing about any company.
+    Also reports the release version and commit (T058).
     """
-    return {"status": "ok"}
+    return {"status": "ok", "version": APP_VERSION, "commit": APP_COMMIT}
 
 
 @app.get("/me")
@@ -312,3 +313,8 @@ app.include_router(preference_router)
 # T015 (NFR-4): gzip responses over 1 KB; GET /regulations is ~770 KB at 2,000 records
 from fastapi.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+# Srinivas, Oct 24 (US), item 7: rename Business Units (core/business_unit_routes.py)
+from core.business_unit_routes import router as business_unit_router
+app.include_router(business_unit_router)

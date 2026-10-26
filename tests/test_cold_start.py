@@ -48,9 +48,11 @@ def test_health_answers_without_a_token_and_reads_no_data():
                 raise AssertionError("health must not touch Firestore")
         core.clients.db = NoData()
         r = TestClient(main.app).get("/health")
-        print(r.status_code, r.json())
+        body = r.json()
+        print(r.status_code, body["status"], body["version"], body["commit"])
     """)
-    assert out.strip().endswith("200 {'status': 'ok'}")
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    assert out.strip().endswith(f"200 ok {version} local")
 
 
 def test_health_is_allowed_from_the_web_app():
@@ -106,3 +108,4 @@ def test_dev_deploy_keeps_no_warm_api_and_at_most_one_instance():
 def test_image_compiles_app_code_at_build_time():
     text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "python -m compileall -q core main.py worker.py" in text
+    assert "COPY main.py worker.py VERSION ./" in text

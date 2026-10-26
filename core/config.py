@@ -27,6 +27,22 @@ DOCUMENTS_BUCKET = (os.environ.get("DOCUMENTS_BUCKET") or f"{GCP_PROJECT}-docume
 
 DEFAULT_CORS_ORIGINS = "http://localhost:5173"
 
+# T058 versioning (Oct 26): the release number lives in the VERSION file at
+# the repo root (copied into the image); the deploy adds the commit
+# (APP_COMMIT). GET /health reports both, so any running server can be
+# matched to its release tag (v<version>) and its exact commit.
+def _read_version() -> str:
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "VERSION")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip() or "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+
+APP_VERSION = _read_version()
+APP_COMMIT = (os.environ.get("APP_COMMIT") or "local").strip()
+
 
 def cors_origins() -> list[str]:
     """Comma-separated CORS_ORIGINS, e.g.
