@@ -287,7 +287,8 @@ def create_user_and_get_reset_link(
     display_name: str = "",
     title: str = "",
     notes: str = "",
-) -> tuple[str, str]:
+    with_reset_link: bool = True,
+) -> tuple[str, Optional[str]]:
     """
     FR-0.4 entry point for the Add Users form. Accepts no password from
     the caller and exposes no password in the response - a random temp
@@ -297,6 +298,10 @@ def create_user_and_get_reset_link(
     scripted user creation (seeding, tests) still works with an explicit
     password exactly as before.
 
+    T061 (Oct 27): POST /users passes with_reset_link=False - the new person
+    gets an invitation email with their own link (core/invitations.py), and
+    no link is returned to the Admin's browser any more.
+
     T022: a dropped connection that survives one retry returns 503 with
     a "please try again" message instead of a bare 500, and leaves no
     half-made login behind.
@@ -304,7 +309,7 @@ def create_user_and_get_reset_link(
     try:
         return _provision_user(
             email, _generate_temp_password(), tenant_id, role, business_unit_ids,
-            display_name, title, notes, with_reset_link=True,
+            display_name, title, notes, with_reset_link=with_reset_link,
         )
     except (UserProvisioningError,) + TRANSIENT_ERRORS:
         # Also covers a dropped connection before the login was made

@@ -33,7 +33,7 @@ logger = logging.getLogger("alerts-worker")
 
 app = FastAPI(title="Regulator Alerts Worker", docs_url=None, redoc_url=None, openapi_url=None)
 
-KNOWN_TYPES = {"regulation.added", "regulation.updated", "alerts.resubscribe"}
+KNOWN_TYPES = {"regulation.added", "regulation.updated", "alerts.resubscribe", "user.invited"}
 
 
 def decode_push(envelope: dict) -> tuple[str, dict]:
@@ -81,6 +81,12 @@ def handle_event(message_id: str, event: dict, db=None) -> str:
     if not claim_message(db, tenant_id, message_id, kind):
         logger.info("Event %s already handled; skipped.", message_id)
         return "duplicate"
+    if kind == "user.invited":
+        # T061: the worker makes the password link itself; the event has IDs only.
+        from core.invitations import send_invitation
+        send_invitation(tenant_id, event.get("uid", ""), event.get("actorUid", ""),
+                        resend=bool(event.get("resend")), db=db)
+        return "sent_invitation"
     if kind == "regulation.added":
         alerts.send_regulation_added_alert(tenant_id, event["regulationId"], event.get("actorUid", ""), db=db)
         return "sent_added"

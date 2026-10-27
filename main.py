@@ -68,7 +68,11 @@ class AddUserRequest(BaseModel):
 
 
 @app.post("/users")
-def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_context)):
+def add_user(
+    payload: AddUserRequest,
+    background_tasks: BackgroundTasks,
+    ctx: RequestContext = Depends(get_current_context),
+):
     """
     FR-0.4: Admin/SME add a new user via name, email, title, role, BU
     assignment, notes (title/notes confirmed against Srinivas's Add Users
@@ -91,7 +95,7 @@ def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_
         )
 
     try:
-        uid, reset_link = create_user_and_get_reset_link(
+        uid, _ = create_user_and_get_reset_link(
             email=payload.email,
             tenant_id=ctx.tenant_id,
             role=payload.role,
@@ -99,6 +103,7 @@ def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_
             display_name=payload.display_name,
             title=payload.title,
             notes=payload.notes,
+            with_reset_link=False,  # T061: the invitation email carries the link
         )
     except firebase_auth.EmailAlreadyExistsError:
         raise HTTPException(
@@ -108,11 +113,16 @@ def add_user(payload: AddUserRequest, ctx: RequestContext = Depends(get_current_
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # T061 (OPEN-16 part 1, approved Oct 26): the person gets a welcome email
+    # with their own "Set my password" link. The link is made where the email
+    # is sent and is never returned to the Admin's browser.
+    from core.invitations import schedule_invitation
+    schedule_invitation(background_tasks, ctx.tenant_id, uid, ctx.uid)
     return {
-        "message": f"User '{payload.email}' created.",
+        "message": f"User '{payload.email}' created. Invitation email sent.",
         "uid": uid,
         "role": payload.role,
-        "reset_link": reset_link,
+        "invitation": "sent",
     }    
 
 @app.get("/users")
@@ -318,3 +328,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # Srinivas, Oct 24 (US), item 7: rename Business Units (core/business_unit_routes.py)
 from core.business_unit_routes import router as business_unit_router
 app.include_router(business_unit_router)
+
+# T061: resend the invitation email (core/user_routes.py)
+from core.user_routes import router as user_router
+app.include_router(user_router)
