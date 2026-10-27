@@ -19,6 +19,7 @@ people up itself):
   {"type": "regulation.added",   "tenantId", "regulationId", "actorUid"}
   {"type": "regulation.updated", "tenantId", "regulationId", "actorUid", "changes"}
   {"type": "alerts.resubscribe", "tenantId", "uid"}
+  {"type": "user.invited",       "tenantId", "uid", "actorUid", "resend"}   (T061)
 """
 import json
 import logging

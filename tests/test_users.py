@@ -67,16 +67,16 @@ def test_admin_can_create_user_with_bu_and_no_password_leaks():
 
     assert body["role"] == "user"
     assert "uid" in body
-    assert "reset_link" in body
-    assert body["reset_link"].startswith("https://")
+    # T061: the password link goes only to the new person's inbox (invitation
+    # email); it is never returned to the Admin's browser.
+    assert "reset_link" not in body
+    assert body["invitation"] == "sent"
+    assert "resetpassword" not in resp.text.lower() and "oobcode" not in resp.text.lower()
 
     # FR-0.4 security requirement: no password field or literal password
-    # value anywhere in the response. The reset_link legitimately contains
-    # "resetpassword" as part of its URL action mode — that's expected and
-    # fine; this checks for an actual password VALUE, not that substring.
+    # value anywhere in the response.
     assert "password" not in body
     assert "temp_password" not in body
-    assert body["reset_link"].count("resetpassword") <= 1
 
 
 def test_user_role_requires_at_least_one_bu():
