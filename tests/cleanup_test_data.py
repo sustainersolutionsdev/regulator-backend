@@ -215,7 +215,12 @@ def run_cleanup(apply: bool = False, verbose: bool = True) -> dict:
                 for ref in bu_refs:
                     print(f"           BU    {ref.id}")
 
+        # T065: activity entries live under each regulation and are not
+        # removed with it, so delete them first.
+        activity_refs = [d.reference for ref in reg_refs for d in ref.collection("activity").stream()]
+
         if apply:
+            _delete_refs(activity_refs)
             _delete_refs(reg_refs)
             _delete_refs(bu_refs)
             _delete_refs(alert_refs)

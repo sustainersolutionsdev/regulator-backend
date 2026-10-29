@@ -60,6 +60,7 @@ from fastapi.responses import Response
 from google.cloud import firestore
 from pydantic import BaseModel
 
+from core.activity import build_activity, latest_note, make_entry
 from core.audit import write_with_audit
 from core.deps import RequestContext, get_current_context, require_admin_or_sme, require_bu_write_access
 from core.storage import BUCKET_NAME, content_type_for, storage_client, upload_document
@@ -224,9 +225,15 @@ def remove_regulation(
 # --- T020: per-Business-Unit status (DL-8) ---------------------------------------
 
 class BuStatusRequest(BaseModel):
-    """Send status, note, or both. status null = "not set"."""
+    """
+    Send status, note, documents, or any mix. status null = "not set".
+    document_keys (T065): documents already uploaded for this unit
+    (POST /regulations/{id}/documents with bu_code), saved with this update
+    as one activity entry.
+    """
     status: Optional[str] = None
     note: Optional[str] = None
+    document_keys: Optional[list[str]] = None
 
 
 @router.patch("/regulations/{reg_id}/bu-status/{bu_code}")
@@ -247,8 +254,9 @@ def update_bu_status(
     _require_bu_on_regulation(bu_code, current)
 
     changes = payload.model_dump(exclude_unset=True)
-    if not changes:
-        raise HTTPException(status_code=400, detail="Send a status, a note, or both.")
+    doc_keys = [k for k in (changes.pop("document_keys", None) or []) if k]
+    if not changes and not doc_keys:
+        raise HTTPException(status_code=400, detail="Send a status, a note, or a document.")
 
     errors = []
     if "status" in changes and changes["status"] is not None and changes["status"] not in STATUS_VALUES:
@@ -256,6 +264,13 @@ def update_bu_status(
     note = (changes.get("note") or "").strip() if "note" in changes else None
     if note is not None and len(note) > STATUS_NOTE_MAX:
         errors.append(f"'note' must be {STATUS_NOTE_MAX} characters or fewer")
+    unit_docs = {
+        d["key"]: d for d in with_document_flags(current)["documents"]
+        if d.get("buCode") == bu_code and not d["hidden"]
+    }
+    for key in doc_keys:
+        if key not in unit_docs:
+            errors.append(f"Document '{key}' is not one of this Business Unit's documents")
     if errors:
         raise HTTPException(status_code=400, detail=errors)
 
@@ -272,6 +287,18 @@ def update_bu_status(
     # Nested map + set(merge=True): only this Business Unit's fields change,
     # so two people updating different units at once never overwrite each other.
     data = {"buStatuses": {bu_code: entry}, "lastUpdated": now, "lastUpdatedBy": ctx.uid}
+
+    # T065: one activity entry per save (status change, note, documents),
+    # written in the same transaction as the status and its audit entry.
+    activity = make_entry(
+        bu_code=bu_code, actor_uid=ctx.uid, actor_role=ctx.role, now=now,
+        previous_status=previous.get("status"), status_sent="status" in changes,
+        new_status=changes.get("status"), note=note, documents=[unit_docs[k] for k in dict.fromkeys(doc_keys)],
+    )
+    also_set = []
+    if activity is not None:
+        activity_ref = reg_ref.collection("activity").document()
+        also_set.append((activity_ref, activity))
     write_with_audit(
         tenant_id=ctx.tenant_id,
         doc_ref=reg_ref,
@@ -279,6 +306,8 @@ def update_bu_status(
         actor_uid=ctx.uid,
         actor_role=ctx.role,
         action="update_bu_status",
+        audit_after={**data, "activity": activity} if activity is not None else None,
+        also_set=also_set,
     )
 
     merged = dict(current.get("buStatuses") or {})
@@ -421,3 +450,85 @@ def download_regulation_document(
         media_type=content_type_for(filename),
         headers={"Content-Disposition": disposition, "X-Content-Type-Options": "nosniff"},
     )
+
+
+# --- T065: Business Unit activity (Srinivas, Oct 29) --------------------------------
+
+def _people(ctx: RequestContext) -> dict:
+    """uid -> {displayName, email} for the caller's company (names in the history)."""
+    return {
+        d.id: {"displayName": (d.to_dict() or {}).get("displayName"), "email": (d.to_dict() or {}).get("email")}
+        for d in ctx.tenant_ref.collection("users").stream()
+    }
+
+
+def _entries(reg_ref, bu_code: Optional[str] = None) -> list[dict]:
+    query = reg_ref.collection("activity")
+    if bu_code is not None:
+        query = query.where("buCode", "==", bu_code)  # single-field filter: no composite index needed
+    return [{"id": d.id, **(d.to_dict() or {})} for d in query.stream()]
+
+
+@router.get("/regulations/{reg_id}/activity")
+def get_regulation_activity(
+    reg_id: str,
+    bu_code: Optional[str] = None,
+    ctx: RequestContext = Depends(get_current_context),
+):
+    """
+    Who changed what on each Business Unit, newest first (T065). Every role
+    sees every unit's history (viewing is company-wide, FR-0.2), so people
+    know whom to contact. Each entry carries the person's name and email,
+    its documents (hidden ones left out) and whether the caller may remove it.
+    """
+    reg_ref, current = _get_live_regulation(ctx, reg_id)
+    if bu_code is not None:
+        _require_bu_on_regulation(bu_code, current)
+    reg = with_document_flags(current)
+    return build_activity(reg, _entries(reg_ref, bu_code), _people(ctx), ctx.uid, bu_code)
+
+
+@router.delete("/regulations/{reg_id}/activity/{entry_id}")
+def remove_activity_note(
+    reg_id: str,
+    entry_id: str,
+    ctx: RequestContext = Depends(get_current_context),
+):
+    """
+    Removes your own note (T065). Soft: the entry is kept and marked removed
+    (NFR-8), and stops showing. An entry that changed the status or added a
+    document can't be removed. If it was the unit's latest note, the unit
+    shows the previous one.
+    """
+    reg_ref, current = _get_live_regulation(ctx, reg_id)
+    entry_ref = reg_ref.collection("activity").document(entry_id)
+    snap = entry_ref.get()
+    entry = {"id": entry_id, **(snap.to_dict() or {})} if snap.exists else None
+    if entry is None or entry.get("removed"):
+        raise HTTPException(status_code=404, detail="Note not found.")
+    if entry.get("actorUid") != ctx.uid:
+        raise HTTPException(status_code=403, detail="You can only remove your own notes.")
+    if entry.get("statusChanged") or entry.get("documents") or not entry.get("note"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only a note on its own can be removed; a status change or document stays on record.",
+        )
+
+    bu_code = entry.get("buCode")
+    now = datetime.now(timezone.utc)
+    also_set = []
+    unit = (current.get("buStatuses") or {}).get(bu_code) or {}
+    if (unit.get("note") or "").strip() == entry["note"]:
+        replacement = latest_note(_entries(reg_ref, bu_code), bu_code, skip_id=entry_id)
+        also_set.append((reg_ref, {"buStatuses": {bu_code: {"note": replacement}}}))
+
+    write_with_audit(
+        tenant_id=ctx.tenant_id,
+        doc_ref=entry_ref,
+        data={"removed": True, "removedAt": now, "removedBy": ctx.uid},
+        actor_uid=ctx.uid,
+        actor_role=ctx.role,
+        action="remove_activity_note",
+        also_set=also_set,
+    )
+    return {"id": entry_id, "removed": True}
