@@ -49,12 +49,20 @@ def health():
 
 @app.get("/me")
 def whoami(ctx: RequestContext = Depends(get_current_context)):
-    """Sanity endpoint â€” proves the middleware correctly decodes the token."""
+    """
+    Sanity endpoint â€” proves the middleware correctly decodes the token.
+    T066 (Niranjan, Oct 27): also the person's name and email, so the app can
+    show who is signed in next to their role.
+    """
+    snap = ctx.tenant_ref.collection("users").document(ctx.uid).get()
+    person = (snap.to_dict() or {}) if snap.exists else {}
     return {
         "uid": ctx.uid,
         "tenant_id": ctx.tenant_id,
         "role": ctx.role,
         "businessUnitIds": ctx.business_unit_ids,
+        "displayName": person.get("displayName") or "",
+        "email": person.get("email") or "",
     }
 
 

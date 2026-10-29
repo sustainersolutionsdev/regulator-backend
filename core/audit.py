@@ -8,7 +8,7 @@ from core.clients import db  # one shared client (core/clients.py)
 
 
 @firestore.transactional
-def _write_with_audit_txn(transaction, doc_ref, audit_ref, data, audit_entry):
+def _write_with_audit_txn(transaction, doc_ref, audit_ref, data, audit_entry, also_set=()):
     """
     Writes the primary document and its audit entry in the SAME
     transaction (NFR-2) — a partial failure can never produce a
@@ -16,6 +16,8 @@ def _write_with_audit_txn(transaction, doc_ref, audit_ref, data, audit_entry):
     corresponding change.
     """
     transaction.set(doc_ref, data, merge=True)
+    for ref, extra in also_set:  # T065: e.g. the unit's activity entry, in the same transaction
+        transaction.set(ref, extra, merge=True)
     transaction.set(audit_ref, audit_entry)
 
 
@@ -27,6 +29,7 @@ def write_with_audit(
     actor_role: str,
     action: str,
     audit_after: Optional[dict] = None,
+    also_set: Optional[list] = None,
 ) -> None:
     """
     The ONLY sanctioned way to write a regulation/status/note/document
@@ -36,6 +39,10 @@ def write_with_audit(
     audit_after (T020): what the audit entry records as "after", when
     `data` holds a Firestore sentinel such as ArrayUnion that cannot itself
     be stored in the audit document. Defaults to `data`.
+
+    also_set (T065): extra (doc_ref, data) pairs written (merged) in the
+    same transaction, such as a Business Unit activity entry, so a status
+    change and its activity entry can never be saved one without the other.
     """
     before_snapshot = doc_ref.get()
     before = before_snapshot.to_dict() if before_snapshot.exists else None
@@ -54,5 +61,5 @@ def write_with_audit(
     }
 
     transaction = db.transaction()
-    _write_with_audit_txn(transaction, doc_ref, audit_ref, data, audit_entry)
+    _write_with_audit_txn(transaction, doc_ref, audit_ref, data, audit_entry, list(also_set or ()))
     print(f"[audit] {action} on {doc_ref.path} by {actor_uid} ({actor_role})")
