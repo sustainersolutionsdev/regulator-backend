@@ -348,3 +348,7 @@ app.include_router(ai_router)
 # T029 (M4): AI summary of one regulation (core/summary_routes.py)
 from core.summary_routes import router as summary_router
 app.include_router(summary_router)
+
+#T031
+from core.insight_routes import router as insight_router
+app.include_router(insight_router)
