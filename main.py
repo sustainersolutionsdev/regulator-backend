@@ -344,3 +344,7 @@ app.include_router(user_router)
 # T028 (M4): AI status and usage (core/ai_routes.py)
 from core.ai_routes import router as ai_router
 app.include_router(ai_router)
+
+# T029 (M4): AI summary of one regulation (core/summary_routes.py)
+from core.summary_routes import router as summary_router
+app.include_router(summary_router)
