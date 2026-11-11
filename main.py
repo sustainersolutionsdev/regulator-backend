@@ -340,3 +340,7 @@ app.include_router(business_unit_router)
 # T061: resend the invitation email (core/user_routes.py)
 from core.user_routes import router as user_router
 app.include_router(user_router)
+
+# T028 (M4): AI status and usage (core/ai_routes.py)
+from core.ai_routes import router as ai_router
+app.include_router(ai_router)

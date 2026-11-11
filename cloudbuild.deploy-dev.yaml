@@ -28,6 +28,10 @@ substitutions:
   # regulator-beta will use min 1 (one server always warm, ~USD 10/month).
   _API_MIN_INSTANCES: "0"
   _API_MAX_INSTANCES: "1"
+  # T028 (M4): Gemini. The key comes from Secret Manager (gemini-api-key);
+  # the model and the per-company daily call limit are settings.
+  _GEMINI_MODEL: gemini-3.1-flash-lite
+  _AI_DAILY_CALL_LIMIT: "300"
 
 steps:
   - id: build
@@ -63,7 +67,8 @@ steps:
       - --labels=app=regulator,component=api,env=dev
       # "^|^" makes | the separator: CORS_ORIGINS contains commas and the sender
       # address contains "@", so neither can be the separator.
-      - --set-env-vars=^|^GCP_PROJECT=${PROJECT_ID}|DOCUMENTS_BUCKET=${PROJECT_ID}-documents|CORS_ORIGINS=${_CORS_ORIGINS}|ALERTS_DISPATCH=pubsub|ALERTS_TOPIC=regulator-alerts|APP_MODULE=main:app|APP_COMMIT=${SHORT_SHA}
+      - --set-env-vars=^|^GCP_PROJECT=${PROJECT_ID}|DOCUMENTS_BUCKET=${PROJECT_ID}-documents|CORS_ORIGINS=${_CORS_ORIGINS}|ALERTS_DISPATCH=pubsub|ALERTS_TOPIC=regulator-alerts|APP_MODULE=main:app|APP_COMMIT=${SHORT_SHA}|GEMINI_MODEL=${_GEMINI_MODEL}|AI_DAILY_CALL_LIMIT=${_AI_DAILY_CALL_LIMIT}
+      - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
 
   - id: deploy-alerts-worker
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
