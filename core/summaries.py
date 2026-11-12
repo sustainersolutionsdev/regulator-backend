@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 
 PROMPT_VERSION = "t029-2"
@@ -184,6 +185,26 @@ def _text(value, limit: int) -> str:
     return value if len(value) <= limit else value[: limit - 1].rstrip() + "…"
 
 
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def scrub(text: str, names: dict) -> str:
+    """
+    T033: two prompt rules also kept by code, on everything the AI writes.
+    Email addresses are removed (contacts are added by the server), and any
+    Business Unit code the AI used is replaced by the unit's name.
+    """
+    if not text:
+        return text
+    text = _EMAIL.sub("", text)
+    for code, name in names.items():
+        if code and name and code != name:
+            text = re.sub(rf"(?<![\w-]){re.escape(code)}(?![\w-])", name, text)
+    text = re.sub(r"\(\s*\)", "", text)
+    text = " ".join(text.split())
+    return re.sub(r"\s+([.,;:])", r"\1", text)
+
+
 class InvalidSummary(ValueError):
     pass
 
@@ -196,11 +217,12 @@ def parse_output(data, facts: dict, not_read: list[dict]) -> dict:
     """
     if not isinstance(data, dict):
         raise InvalidSummary("answer is not an object")
-    short = _text(data.get("short"), LIMITS["short"])
-    regulation = _text(data.get("regulation"), LIMITS["regulation"])
+    unit_names = {u["code"]: u["name"] for u in facts["units"]}
+    short = scrub(_text(data.get("short"), LIMITS["short"]), unit_names)
+    regulation = scrub(_text(data.get("regulation"), LIMITS["regulation"]), unit_names)
     if not short or not regulation:
         raise InvalidSummary("short or regulation missing")
-    docs_notes = _text(data.get("documentsAndNotes"), LIMITS["documentsAndNotes"]) or "No documents or notes have been added."
+    docs_notes = scrub(_text(data.get("documentsAndNotes"), LIMITS["documentsAndNotes"]), unit_names) or "No documents or notes have been added."
     if not_read:
         names = ", ".join(f"{d['fileName']} ({d['reason']})" for d in not_read)
         noun = "document" if len(not_read) == 1 else "documents"
@@ -209,7 +231,7 @@ def parse_output(data, facts: dict, not_read: list[dict]) -> dict:
     by_code = {}
     for item in data.get("units") or []:
         if isinstance(item, dict) and isinstance(item.get("code"), str):
-            by_code.setdefault(item["code"], _text(item.get("summary"), LIMITS["unit"]))
+            by_code.setdefault(item["code"], scrub(_text(item.get("summary"), LIMITS["unit"]), unit_names))
     units = [
         {"code": u["code"], "name": u["name"], "status": u["status"], "statusLabel": u["statusLabel"],
          "summary": by_code.get(u["code"]) or ("No explanation has been entered." if not u["explanation"] else "")}
@@ -225,7 +247,7 @@ def parse_output(data, facts: dict, not_read: list[dict]) -> dict:
         code = item.get("code") if isinstance(item.get("code"), str) else ""
         if code and code not in known:
             code = ""
-        action = _text(item.get("action"), LIMITS["action"])
+        action = scrub(_text(item.get("action"), LIMITS["action"]), unit_names)
         if action:
             actions.append({"code": code, "unit": known[code]["name"] if code else "", "action": action})
     actions.sort(key=lambda a: STATUS_ORDER.get(known[a["code"]]["status"], 2) if a["code"] else 1)

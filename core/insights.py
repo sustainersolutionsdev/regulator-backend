@@ -29,9 +29,9 @@ import hashlib
 import json
 import re
 
-from core.summaries import DISCLAIMER, STATUS_WORDS, status_label  # noqa: F401  (one disclaimer, one set of words)
+from core.summaries import DISCLAIMER, STATUS_WORDS, scrub, status_label  # noqa: F401  (one disclaimer, one set of words)
 
-PROMPT_VERSION = "t031-1"
+PROMPT_VERSION = "t031-2"
 
 NOT_SET = "__none__"  # same key the web app uses for "Not set" / "Not specified"
 GROUPS = ("compliant", "pending", "action_needed", "not_set", "all")
@@ -203,10 +203,11 @@ Rules:
 
 Return JSON only, with exactly these keys:
 - "short": at most 3 short sentences (about 60 words): how many statuses the group holds and the most important points, red (Action needed) first.
-- "overview": 1 to 3 sentences on the group as a whole: common themes, nearest due dates.
+- "overview": 1 to 3 sentences on the group as a whole: common themes, nearest due dates. Do not repeat what the entry lines say.
 - "entries": one object per entry given, same order: {"id": the entry's id, "text": the entry's line}. Keep each line to the entry's "words" limit.
   For red (Action needed) entries: why it is red and the action being taken, both only from its explanation and notes; if no action is entered, say "No action has been entered yet."
-  For other entries: its status explanation in one or two short lines."""
+  For other entries: its status explanation in one or two short lines.
+  The regulation, unit, status and due date are shown next to each line, so do not repeat them in the line."""
 
 
 def user_prompt(group: str, kept: list[dict], more: list[dict], all_counts: dict, view_label: str) -> str:
@@ -239,10 +240,11 @@ class InvalidSummary(ValueError):
 def parse_output(data, kept: list[dict]) -> dict:
     if not isinstance(data, dict):
         raise InvalidSummary("answer is not an object")
-    short = _text(data.get("short"), 500)
+    names = {e["unitCode"]: e["unit"] for e in kept}
+    short = scrub(_text(data.get("short"), 500), names)
     if not short:
         raise InvalidSummary("short missing")
-    overview = _text(data.get("overview"), 1200)
+    overview = scrub(_text(data.get("overview"), 1200), names)
     by_id = {}
     for item in data.get("entries") or []:
         if isinstance(item, dict) and isinstance(item.get("id"), str):
@@ -250,7 +252,7 @@ def parse_output(data, kept: list[dict]) -> dict:
     lines = []
     for e in kept:
         limit = WORDS[e["status"]] * 9
-        text = _text(by_id.get(e["id"]), limit) or (e["explanation"][:limit] if e["explanation"] else "No explanation has been entered.")
+        text = scrub(_text(by_id.get(e["id"]), limit), names) or (e["explanation"][:limit] if e["explanation"] else "No explanation has been entered.")
         lines.append({"id": e["id"], "text": text})
     return {"short": short, "overview": overview, "entries": lines}
 
