@@ -1,5 +1,6 @@
 """
-core/insight_routes.py - POST /insights/summary (T031; FR-4.5, FR-4.6).
+core/insight_routes.py - POST /insights/summary (T031; FR-4.5, FR-4.6) and
+POST /insights/chart-notes (T076: the AI notes under the Insights charts).
 
 The AI summary behind each "View summary" link in the Insights page's
 Compliance Overview: one status row (Compliant, Pending, Action needed,
@@ -21,7 +22,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from core import ai_client, insights
+from core import ai_client, chart_notes, insights
 from core.deps import RequestContext, get_current_context
 from core.regulation_routes import with_document_flags
 from core.summaries import contacts_by_unit
@@ -32,6 +33,10 @@ router = APIRouter()
 
 class InsightSummaryRequest(BaseModel):
     group: str
+    filters: dict = {}
+
+
+class ChartNotesRequest(BaseModel):
     filters: dict = {}
 
 
@@ -127,3 +132,63 @@ def insight_summary(payload: InsightSummaryRequest, ctx: RequestContext = Depend
     except Exception as e:  # noqa: BLE001 - the answer is still good; it just isn't reused
         logger.warning("Insights summary cache write failed: %s", type(e).__name__)
     return _present(group, f, kept, more, total, parsed["entries"], stored, contacts, cached=False)
+
+
+@router.post("/insights/chart-notes")
+def insight_chart_notes(payload: ChartNotesRequest, ctx: RequestContext = Depends(get_current_context)):
+    """
+    T076: a 2-line AI note for each chart in the view, written in one AI call
+    from the chart numbers only (no explanations, notes, documents or
+    people). Every role, own company only; filters applied here. Saved per
+    view with a fingerprint of the numbers: the same view costs nothing
+    again, and any change to a count regenerates the notes. An empty view
+    makes no AI call.
+    """
+    try:
+        f = insights.clean_filters(payload.filters)
+    except insights.BadFilters as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    unit_names = {d.id: (d.to_dict() or {}).get("label") or d.id for d in ctx.tenant_ref.collection("businessUnits").stream()}
+    regs = insights.filter_regulations(_regulations(ctx), f)
+    data = chart_notes.chart_data(regs, f, unit_names)
+    base = {"aiGenerated": False, "disclaimer": insights.DISCLAIMER, "generatedAt": None, "model": "",
+            "cached": False, "notes": {}}
+    if not chart_notes.has_data(data):
+        return base
+
+    view = insights.view_label(f, unit_names)
+    model = ai_client.settings()["model"]
+    fp = chart_notes.fingerprint(data, view, model)
+    cache_ref = ctx.tenant_ref.collection("aiInsightSummaries").document(insights.filters_key(f, "charts"))
+    snap = cache_ref.get()
+    stored = (snap.to_dict() or {}) if snap.exists else {}
+
+    def present(s, cached):
+        generated = s.get("generatedAt")
+        return {**base, "aiGenerated": True, "cached": cached, "model": s.get("model", ""), "notes": s.get("notes", {}),
+                "generatedAt": generated.isoformat() if isinstance(generated, datetime) else generated}
+
+    if stored.get("fingerprint") == fp and stored.get("notes"):
+        return present(stored, True)
+
+    try:
+        answer, result = ai_client.generate_json(
+            ctx.tenant_id, "insights_charts", chart_notes.user_prompt(data, view),
+            system=chart_notes.SYSTEM_PROMPT, max_output_tokens=1200, actor_uid=ctx.uid,
+        )
+        notes = chart_notes.parse_output(answer, data, {code: name for code, name in unit_names.items()})
+    except ai_client.AIError as e:
+        raise HTTPException(status_code=e.http_status, detail=e.message)
+    except chart_notes.InvalidNotes as e:
+        logger.warning("Chart notes rejected: %s", e)
+        raise HTTPException(status_code=502, detail=ai_client.AINoAnswer.message)
+
+    stored = {"fingerprint": fp, "generatedAt": datetime.now(timezone.utc), "generatedBy": ctx.uid,
+              "model": result.model, "promptVersion": chart_notes.PROMPT_VERSION, "group": "charts", "filters": f,
+              "notes": notes}
+    try:
+        cache_ref.set(stored)
+    except Exception as e:  # noqa: BLE001 - the notes are still good; they just aren't reused
+        logger.warning("Chart notes cache write failed: %s", type(e).__name__)
+    return present(stored, False)
