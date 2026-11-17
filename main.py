@@ -365,3 +365,7 @@ app.include_router(insight_router)
 # T034 (M5): duplicate check on Add Regulation (core/duplicate_routes.py)
 from core.duplicate_routes import router as duplicate_router
 app.include_router(duplicate_router)
+
+# T035 (M5): classification help on Add Regulation (core/classify_routes.py)
+from core.classify_routes import router as classify_router
+app.include_router(classify_router)
