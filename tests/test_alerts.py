@@ -58,7 +58,7 @@ def uid_of(headers):
 def create_regulation(headers, on_dashboard=True):
     payload = {
         "title": f"T025 Alert Regulation {uuid.uuid4().hex[:8]}",
-        "abbreviated_title": "T025 Alert",
+        "abbreviated_title": f"T025 Alert {uuid.uuid4().hex[:6]}",  # T034: unique, or the duplicate check stops the save
         "due_date": "2027-02-18",
         "domain": "Batteries",
         "business_unit_ids": ["BU1"],
@@ -152,7 +152,8 @@ def test_new_regulation_on_dashboard_writes_one_alert_entry(admin):
     assert entry["triggeredBy"] == uid_of(admin)
     assert entry["status"] in ("logged", "sent", "no_recipients"), entry
     assert uid_of(admin) in entry["recipientUids"]
-    assert entry["subject"] == "[Regulator] New regulation: T025 Alert (due 18 Feb 2027)"
+    assert entry["subject"].startswith("[Regulator] New regulation: T025 Alert ")
+    assert entry["subject"].endswith(" (due 18 Feb 2027)")
 
 
 def test_no_alert_for_regulation_not_on_dashboard(admin):
@@ -198,7 +199,8 @@ def test_main_detail_edit_writes_an_updated_entry(admin):
     entries = wait_for_entry(reg_id, "regulation_updated")
     assert len(entries) == 1, "no regulation_updated entry within the wait"
     assert entries[0]["changedFields"] == ["dueDate"]
-    assert entries[0]["subject"] == "[Regulator] Updated: T025 Alert — due date changed"
+    assert entries[0]["subject"].startswith("[Regulator] Updated: T025 Alert ")
+    assert entries[0]["subject"].endswith(" — due date changed")
     assert entries[0]["triggeredBy"] == uid_of(admin)
 
 
