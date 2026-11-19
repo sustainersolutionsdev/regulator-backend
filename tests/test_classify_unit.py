@@ -180,3 +180,9 @@ def test_ai_unavailable_or_limit_is_a_plain_message(api):
 def test_users_cannot_ask(api):
     api.role = "user"
     assert suggest(api).status_code == 403
+
+
+def test_prompt_steers_domain_to_the_regulated_product():
+    # Srinivas, Nov 19: SB 343 (recyclability labels on packaging) is Packaging.
+    assert "products or materials the regulation covers" in classify.SYSTEM_PROMPT
+    assert '"Packaging"' in classify.SYSTEM_PROMPT and classify.PROMPT_VERSION == "t035-2"

@@ -10,7 +10,10 @@ Approved design (Nov 17, OPEN-9):
     Country and Region are suggested instead;
   - a field the AI is not confident about shows "Not sure" (low confidence
     is never offered as a suggestion);
-  - the pasted text is used only for the suggestion and never stored.
+  - the pasted text is used only for the suggestion and never stored;
+  - Domain follows the product or material regulated, not the kind of
+    obligation (Srinivas, Nov 19: California SB 343, recyclability labels
+    on packaging, is "Packaging", not "Sustainability Transparency").
 
 Kept by code, not left to the AI:
   - Domain must be one of the 17 domains (same list as the form,
@@ -25,7 +28,7 @@ from __future__ import annotations
 import json
 import re
 
-PROMPT_VERSION = "t035-1"
+PROMPT_VERSION = "t035-2"
 
 MIN_CHARS = 200        # roughly a paragraph
 MAX_CHARS = 20_000     # longer text is cut (and the answer says so)
@@ -74,6 +77,7 @@ From the regulation text they pasted, suggest four fields. Use ONLY the pasted t
 
 Fields:
 1. "domain": exactly one of the DOMAINS given, or "Other" with a short "otherName" (2-4 words) when none fits.
+   Choose the domain of the products or materials the regulation covers (for example packaging, batteries, chemicals), not the kind of obligation it imposes (labelling, claims, reporting). Example: a law on recyclability labels for packaging is "Packaging". Use "Sustainability Transparency" only when the regulation is mainly about company-level disclosure or reporting rather than a product or material.
 2. "country": the country or countries the regulation applies to, as written in plain English (e.g. "United States", "France", "European Union member states"). Empty if the text doesn't say.
 3. "region": exactly one of the REGIONS given (US states are allowed when the country is the United States), or "Other" with a short "otherName". Empty if the text doesn't say.
 4. "businessUnits": which of the company's BUSINESS UNITS the regulation most likely affects, judged from what each unit's name says it makes or does. Use the unit codes given. Leave it empty if the text gives no basis.
