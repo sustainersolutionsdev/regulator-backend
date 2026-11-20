@@ -40,7 +40,7 @@ def auth_header(email):
 def create_on_dashboard(headers):
     payload = {
         "title": f"T025 Alert Regulation {uuid.uuid4().hex[:8]}",
-        "abbreviated_title": "T027 QC",
+        "abbreviated_title": f"T027 QC {uuid.uuid4().hex[:6]}",  # T034: unique, or the duplicate check stops the save
         "due_date": "2027-02-18",
         "domain": "Batteries",
         "business_unit_ids": ["BU1"],

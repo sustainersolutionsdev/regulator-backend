@@ -46,7 +46,7 @@ def auth_header(email, password):
 def create_regulation(headers, **overrides) -> dict:
     payload = {
         "title": f"T011 Roadmap Regulation {uuid.uuid4().hex[:8]}",
-        "abbreviated_title": "T011 TEST",
+        "abbreviated_title": f"T011 TEST {uuid.uuid4().hex[:6]}",  # T034: unique, or the duplicate check stops the save
         "due_date": "2027-06-30",
         "domain": "Batteries",
         "business_unit_ids": ["BU1"],
@@ -78,7 +78,7 @@ def test_created_regulation_is_returned_with_roadmap_fields():
     match = next((r for r in list_regulations(headers) if r["id"] == created["id"]), None)
     assert match is not None, "regulation created via POST /regulations missing from GET /regulations"
     assert match["title"] == created["title"]
-    assert match["abbreviatedTitle"] == "T011 TEST"
+    assert match["abbreviatedTitle"] == created["abbreviatedTitle"] and match["abbreviatedTitle"].startswith("T011 TEST ")
     assert match["dueDate"] == "2027-06-30"
     assert match["addToRoadmapDashboard"] is True
     assert match["businessUnitIds"] == ["BU1"]

@@ -29,7 +29,7 @@ def minimal_valid_payload(title_suffix: str = None) -> dict:
     suffix = title_suffix or uuid.uuid4().hex[:8]
     return {
         "title": f"Test Regulation {suffix}",
-        "abbreviated_title": "Test Reg",
+        "abbreviated_title": f"Test Reg {suffix}",  # T034: unique, or the duplicate check stops the save
         "due_date": "2027-01-01",
         "domain": "Chemicals",
         "country": "US",

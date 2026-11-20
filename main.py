@@ -205,6 +205,8 @@ class AddRegulationRequest(BaseModel):
     notes: Optional[str] = ""
     documents: Optional[list[DocumentMetadata]] = []
     add_to_roadmap_dashboard: bool = False
+    # T034 (M5, FR-5.1): ids of existing regulations the SME confirmed are different.
+    confirmed_not_duplicate_of: list[str] = []
 
 
 @app.post("/regulations/upload-document")
@@ -266,6 +268,8 @@ def add_regulation(
     require_admin_or_sme(ctx)
 
     payload_dict = payload.model_dump()
+    # T034 (FR-5.1): not a regulation field; checked just before the save.
+    duplicate_confirmations = payload_dict.pop("confirmed_not_duplicate_of", None) or []
     
         # T009 hardening (NFR-1, NFR-2): document metadata comes from the
     # client, so it is never trusted as-is.
@@ -289,6 +293,10 @@ def add_regulation(
     if errors:
         raise HTTPException(status_code=400, detail=errors)
 
+    # T034 (FR-5.1): a clear match must be confirmed before the save (409 otherwise).
+    from core.duplicate_routes import record_duplicate_confirmation, require_duplicate_confirmation
+    confirmed_not_duplicate = require_duplicate_confirmation(ctx, payload_dict, duplicate_confirmations)
+
     record = create_regulation(
         tenant_id=ctx.tenant_id,
         payload=payload_dict,
@@ -297,6 +305,7 @@ def add_regulation(
     )
     # T025 (FR-3.1, DL-9): email alert, sent after the response;
     # skipped when the regulation is not on the Roadmap/Dashboard.
+    record_duplicate_confirmation(ctx, record["id"], confirmed_not_duplicate)
     from core.alerts import schedule_regulation_added_alert
     schedule_regulation_added_alert(background_tasks, ctx.tenant_id, record["id"], ctx.uid)
     return record
@@ -352,3 +361,11 @@ app.include_router(summary_router)
 #T031
 from core.insight_routes import router as insight_router
 app.include_router(insight_router)
+
+# T034 (M5): duplicate check on Add Regulation (core/duplicate_routes.py)
+from core.duplicate_routes import router as duplicate_router
+app.include_router(duplicate_router)
+
+# T035 (M5): classification help on Add Regulation (core/classify_routes.py)
+from core.classify_routes import router as classify_router
+app.include_router(classify_router)
