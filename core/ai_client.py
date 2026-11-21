@@ -327,13 +327,22 @@ def generate(
 
 def generate_json(tenant_id: str, feature: str, contents, **kwargs) -> tuple[dict | list, AIResult]:
     """generate() with a JSON answer, parsed. A reply that isn't valid JSON
-    raises AINoAnswer (the call is still logged and counted)."""
+    raises AINoAnswer (the call is still logged and counted).
+
+    Every feature asks for one JSON object. Since Nov 21, 2026 Gemini
+    sometimes wraps that object in a list ([{...}]); a list holding exactly
+    one object is unwrapped here, so every feature accepts it (v0.12.1)."""
     result = generate(tenant_id, feature, contents, json_mode=True, **kwargs)
     text = result.text
     if text.startswith("```"):
         text = text.strip("`")
         text = text[text.find("\n") + 1:] if "\n" in text else text
     try:
-        return json.loads(text), result
+        data = json.loads(text)
     except ValueError:
+        logger.warning("Gemini reply for %s was not valid JSON (finishReason=%s, %d chars)",
+                       feature, result.finish_reason or "none", len(result.text))
         raise AINoAnswer("reply was not valid JSON")
+    if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
+        data = data[0]
+    return data, result
