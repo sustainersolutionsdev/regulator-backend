@@ -214,6 +214,19 @@ def test_json_in_code_fence_is_accepted():
     assert data == {"a": 1}
 
 
+def test_object_wrapped_in_a_list_is_unwrapped():
+    # Nov 21, 2026: Gemini returned [{"short": ...}] for regulation summaries.
+    post = FakePost(ok(text='[\n  {"short": "s", "regulation": "r"}\n]'))
+    data, _ = generate_json("t1", "f", "x", db=FakeDb(), post=post, now=NOW)
+    assert data == {"short": "s", "regulation": "r"}
+
+
+def test_other_lists_are_left_as_they_are():
+    for text, expected in (('[{"a": 1}, {"b": 2}]', [{"a": 1}, {"b": 2}]), ("[]", []), ('["x"]', ["x"])):
+        data, _ = generate_json("t1", "f", "x", db=FakeDb(), post=FakePost(ok(text=text)), now=NOW)
+        assert data == expected
+
+
 def test_invalid_json_is_no_answer_but_still_counted():
     post, db = FakePost(ok(text="not json")), FakeDb()
     with pytest.raises(AINoAnswer):
